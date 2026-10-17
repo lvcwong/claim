@@ -1,10 +1,11 @@
 # EcoClaim – Mileage & Expenses Claim Form
 
-Web app for LVC EcoPack staff to submit monthly mileage and expense claims and get them approved. Everyone signs in to the same server and sees the same claims from any PC or phone.
+Web app for LVC EcoPack staff to submit monthly mileage and expense claims and get them approved. Everyone signs in to the same server from any PC or phone.
 
 ## Features
 - Sign in with username or email, plus password, department and role
 - Roles: **Staff**, **HOD**, **Approver**, **Administrator**
+- Privacy: you only see your own claims. An HOD or Approver can also open claims waiting for their approval and the ones they approved or returned. Nobody, not even the Administrator, sees other people's drafts.
 - Approval restricted to the HOD of the claim's department, or an Approver assigned to that department (never your own claim). Enforced on the server.
 - Mileage (km × rate), toll, parking and other expenses with live totals
 - Export a claim to **Excel** (with formulas) or **PDF**; export the claim list to Excel
@@ -14,8 +15,8 @@ Web app for LVC EcoPack staff to submit monthly mileage and expense claims and g
 ## How it's built
 | File | What it does |
 |---|---|
-| `app.py` | Flask server: sign-in, permissions, and the API for claims, users and settings |
-| `Mileage-Expenses-Claim-Form.html` | The whole user interface, served by `app.py` at `/` |
+| `server.py` | Flask server: sign-in, permissions, and the API for claims, users and settings |
+| `Mileage-Expenses-Claim-Form.html` | The whole user interface, served by `server.py` at `/` |
 | `requirements.txt`, `railway.json`, `.python-version` | Deployment settings for Railway |
 
 Data is stored in **PostgreSQL** when `DATABASE_URL` is set (Railway), otherwise in a local SQLite file `ecoclaim.db`.
@@ -35,7 +36,7 @@ Each push to `main` on GitHub redeploys automatically.
 ```
 python -m venv .venv
 .venv\Scripts\pip install flask
-.venv\Scripts\python app.py
+.venv\Scripts\python server.py
 ```
 Then open http://127.0.0.1:8000.
 

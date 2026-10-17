@@ -277,7 +277,7 @@ const ICON={
 const STATUS={draft:{label:'Draft',cls:'b-draft'},pending:{label:'Pending HOD',cls:'b-pending'},approved:{label:'Approved',cls:'b-approved'},rejected:{label:'Rejected',cls:'b-rejected'}};
 const badge=s=>`<span class="badge ${STATUS[s].cls}">${STATUS[s].label}</span>`;
 
-/* ---------- state (users and claims live on the server – see app.py) ---------- */
+/* ---------- state (users and claims live on the server – see server.py) ---------- */
 const state={
   settings:{company:'LVC EcoPack Sdn Bhd',rate:0.5,departments:[],notify:true,demo:false},
   claims:[], users:[], user:null,
@@ -322,9 +322,11 @@ const canApproveRole=()=>isHOD()||isApprover();
    These checks only shape the screen – the server enforces the same rules. */
 const approveDeptsOf=u=>u.role==='hod'?[u.department]:u.role==='approver'?(u.approveDepts||[]):[];
 const coversDept=(u,d)=>approveDeptsOf(u).includes(d);
-const canSee=c=>isAdmin()||ownsClaim(c)||coversDept(me(),c.department);
+const decidedByMe=c=>!!(c.hod&&c.hod.userId===me().id);
+/* your own claims, plus claims waiting for your approval and the ones you approved/returned */
+const canSee=c=>ownsClaim(c)||(c.status==='pending'&&coversDept(me(),c.department))||((c.status==='approved'||c.status==='rejected')&&decidedByMe(c));
 const canApprove=c=>c.status==='pending'&&coversDept(me(),c.department)&&!ownsClaim(c);
-const canRevoke=c=>c.status==='approved'&&coversDept(me(),c.department)&&!ownsClaim(c);
+const canRevoke=c=>c.status==='approved'&&decidedByMe(c)&&coversDept(me(),c.department)&&!ownsClaim(c);
 const approversFor=c=>state.users.filter(u=>u.active!==false&&coversDept(u,c.department)&&u.id!==c.ownerId);
 const ownerOf=c=>state.users.find(u=>u.id===c.ownerId);
 let lastActivity=Date.now();
@@ -440,7 +442,7 @@ const isBlankItem=i=>!['date','from','to','km','toll','parking','other','desc','
 const blankItem=(date)=>({id:uid(),date:date||'',from:'',to:'',km:'',toll:'',parking:'',other:'',desc:'',receipt:''});
 const getClaim=id=>state.claims.find(c=>c.id===id);
 const canEdit=c=>ownsClaim(c)&&(c.status==='draft'||c.status==='rejected');
-const canDelete=c=>isAdmin()||(ownsClaim(c)&&(c.status==='draft'||c.status==='rejected'));
+const canDelete=c=>ownsClaim(c)&&(c.status==='draft'||c.status==='rejected');
 const fileBase=c=>`Mileage & Expenses Claim Form (${(c.claimant||'Claimant').trim()} - ${monthLabel(c.month)||'Undated'})`.replace(/[\\/:*?"<>|]/g,'-');
 
 /* ---------- chrome ---------- */
@@ -455,7 +457,7 @@ function syncChrome(){
   $('#tabHod').hidden=!canApproveRole();$('#tabUsers').hidden=!isAdmin();$('#btnSettings').hidden=!isAdmin();
   $('#tabHod').firstChild.textContent=isApprover()?'Approvals':'HOD Approvals';
   document.querySelector('[data-nav=hod]').hidden=!canApproveRole();document.querySelector('[data-nav=users]').hidden=!isAdmin();document.querySelector('[data-nav=settings]').hidden=!isAdmin();
-  $('#tabList').textContent=isAdmin()?'All Claims':canApproveRole()?'Department Claims':'My Claims';
+  $('#tabList').textContent='My Claims';
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));
   document.querySelectorAll('.nav-btn[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===state.tab));
   const p=state.claims.filter(canApprove).length;$('#pendCount').textContent=p;$('#pendCount').style.display=p?'':'none';
@@ -499,22 +501,22 @@ function render(){if(!me())return showLogin();syncChrome();const v=state.view;
 
 function renderList(){
   const hodTab=state.tab==='hod', f=state.filter, q=f.q.trim().toLowerCase();
-  let list=state.claims.filter(canSee).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
-  if(hodTab)list=list.filter(canApprove);
+  /* "My Claims" = only your own; "Approvals" = others' claims waiting for you, or that you approved/returned */
+  const all=state.claims.filter(c=>canSee(c)&&(hodTab?!ownsClaim(c):ownsClaim(c))), sumBy=s=>all.filter(c=>c.status===s);
+  let list=all.slice().sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
   if(q)list=list.filter(c=>[c.claimName,c.claimant,c.ref,c.purpose,c.department].join(' ').toLowerCase().includes(q));
   if(f.month)list=list.filter(c=>c.month===f.month);
-  const all=state.claims.filter(canSee), sumBy=s=>all.filter(c=>c.status===s);
   const amt=a=>a.reduce((s,c)=>s+totals(c).total,0);
   const kp=sumBy('pending'),ka=sumBy('approved'),kr=sumBy('rejected'),kd=sumBy('draft');
   const months=[...new Set(all.map(c=>c.month).filter(Boolean))].sort().reverse();
-  const order=hodTab?['pending']:(f.status==='all'?['pending','approved','rejected','draft']:[f.status]);
+  const order=hodTab?['pending','approved','rejected']:(f.status==='all'?['pending','approved','rejected','draft']:[f.status]);
   const depts=approveDeptsOf(me()).map(esc).join(', ');
-  const title=hodTab?`${isApprover()?'Approvals':'HOD Approvals'} – ${depts||'no departments assigned'}`:isAdmin()?'All Mileage &amp; Expenses Claims':canApproveRole()?`${depts} Claims`:'My Mileage &amp; Expenses Claims';
+  const title=hodTab?`${isApprover()?'Approvals':'HOD Approvals'} – ${depts||'no departments assigned'}`:'My Mileage &amp; Expenses Claims';
   let html=`<div class="page-h"><h1>${title}</h1><span class="spacer"></span>
     <button class="btn" id="expList">${ICON.xls}Export list to Excel</button>
     <button class="btn primary" id="newBtn">${ICON.plus}New Claim</button></div>
   <div class="kpis">
-    <div class="kpi accent"><div class="l">Pending HOD approval</div><div class="v">${rm(amt(kp))}</div><div class="s">${kp.length} claim${kp.length===1?'':'s'} awaiting review</div></div>
+    <div class="kpi accent"><div class="l">${hodTab?'Waiting for your approval':'Pending HOD approval'}</div><div class="v">${rm(amt(kp))}</div><div class="s">${kp.length} claim${kp.length===1?'':'s'} awaiting review</div></div>
     <div class="kpi"><div class="l">Approved</div><div class="v">${rm(amt(ka))}</div><div class="s">${ka.length} claim${ka.length===1?'':'s'}</div></div>
     <div class="kpi"><div class="l">Rejected</div><div class="v">${kr.length}</div><div class="s">returned for correction</div></div>
     <div class="kpi"><div class="l">Drafts</div><div class="v">${kd.length}</div><div class="s">not yet submitted</div></div>
@@ -525,7 +527,7 @@ function renderList(){
     <select id="fm"><option value="">All months</option>${months.map(m=>`<option value="${m}" ${f.month===m?'selected':''}>${monthLabel(m)}</option>`).join('')}</select>
   </div>`;
   order.forEach(s=>{
-    const rows=list.filter(c=>c.status===s); if(f.status==='all'&&!hodTab&&!rows.length&&s!=='pending')return;
+    const rows=list.filter(c=>c.status===s); if((hodTab||f.status==='all')&&!rows.length&&s!=='pending')return;
     const per=6, pg=Math.min(state.pages[s]||1,Math.max(1,Math.ceil(rows.length/per))), slice=rows.slice((pg-1)*per,pg*per), pages=Math.ceil(rows.length/per);
     html+=`<div class="card"><div class="card-h"><h3>Status</h3>${badge(s)}<span class="sub">${rows.length} claim${rows.length===1?'':'s'}</span></div>`;
     if(!rows.length){html+=`<div class="empty">${s==='pending'?(hodTab?'Nothing waiting for your approval. 🌿':'No claims are waiting for HOD approval.'):'No claims.'}</div></div>`;return}

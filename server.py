@@ -4,8 +4,8 @@ Serves the claim form (Mileage-Expenses-Claim-Form.html) and keeps users and cla
 database, so everyone signs in to the same system. Every permission rule is enforced here.
 
 Database: PostgreSQL when DATABASE_URL is set (Railway), otherwise a local SQLite file.
-Run locally:   python app.py            -> http://127.0.0.1:8000
-On Railway:    gunicorn app:app (see railway.json)
+Run locally:   python server.py         -> http://127.0.0.1:8000
+On Railway:    gunicorn server:app (see railway.json)
 """
 import hashlib
 import json
@@ -229,8 +229,18 @@ def owns(u, c):
     return s(c.get("claimant")).lower() == s(u.get("name")).lower()
 
 
+def decided_by(u, c):
+    return bool(c.get("hod")) and c["hod"].get("userId") == u["id"]
+
+
 def can_see(u, c):
-    return u["role"] == "admin" or owns(u, c) or c.get("department") in approve_depts(u)
+    # your own claims, plus claims waiting for your approval and the ones you approved/returned;
+    # nobody - not even an Administrator - sees other people's claims or drafts
+    if owns(u, c):
+        return True
+    if c["status"] == "pending" and c.get("department") in approve_depts(u):
+        return True
+    return c["status"] in ("approved", "rejected") and decided_by(u, c)
 
 
 def can_approve(u, c):
@@ -238,7 +248,7 @@ def can_approve(u, c):
 
 
 def can_revoke(u, c):
-    return c["status"] == "approved" and c.get("department") in approve_depts(u) and not owns(u, c)
+    return c["status"] == "approved" and decided_by(u, c) and c.get("department") in approve_depts(u) and not owns(u, c)
 
 
 def can_edit(u, c):
@@ -246,7 +256,7 @@ def can_edit(u, c):
 
 
 def can_delete(u, c):
-    return u["role"] == "admin" or (owns(u, c) and c["status"] in ("draft", "rejected"))
+    return owns(u, c) and c["status"] in ("draft", "rejected")
 
 
 # ---------------------------------------------------------------- sessions
