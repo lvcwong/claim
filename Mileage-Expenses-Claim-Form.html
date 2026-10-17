@@ -242,7 +242,6 @@ table.items{width:100%;border-collapse:collapse;min-width:1100px}
 
 <script>
 /* ---------- helpers ---------- */
-const LS_CLAIMS='ecoclaim_claims_v1', LS_SET='ecoclaim_settings_v1', LS_USERS='ecoclaim_users_v1', LS_LOCK='ecoclaim_lock_v1', SS_SESSION='ecoclaim_session_v1';
 const IDLE_MINUTES=30;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -259,8 +258,6 @@ const monthLabel=ym=>{if(!ym)return'';const[y,m]=ym.split('-');return new Date(+
 const monthBounds=ym=>{const[y,m]=ym.split('-').map(Number);return[`${y}-${pad(m)}-01`,isoOf(new Date(y,m,0))]};
 const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36);
 const dtStamp=iso=>{const d=new Date(iso);return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+', '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})};
-function load(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}
-function save(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Could not save – browser storage is blocked','err')}}
 function toast(msg,type){const t=document.createElement('div');t.className='toast '+(type||'');t.textContent=msg;$('#toasts').appendChild(t);setTimeout(()=>t.remove(),3200)}
 
 const ICON={
@@ -280,30 +277,38 @@ const ICON={
 const STATUS={draft:{label:'Draft',cls:'b-draft'},pending:{label:'Pending HOD',cls:'b-pending'},approved:{label:'Approved',cls:'b-approved'},rejected:{label:'Rejected',cls:'b-rejected'}};
 const badge=s=>`<span class="badge ${STATUS[s].cls}">${STATUS[s].label}</span>`;
 
-/* ---------- state ---------- */
-const DEFAULT_SETTINGS={company:'LVC EcoPack Sdn Bhd',rate:0.5,departments:['Sales','Operations','Logistics','Finance','Admin','Management'],seq:1};
+/* ---------- state (users and claims live on the server – see app.py) ---------- */
 const state={
-  settings:Object.assign({},DEFAULT_SETTINGS,load(LS_SET,{})),
-  claims:load(LS_CLAIMS,null),
-  users:load(LS_USERS,[]),
-  user:null,
+  settings:{company:'LVC EcoPack Sdn Bhd',rate:0.5,departments:[],notify:true,demo:false},
+  claims:[], users:[], user:null,
   view:{name:'list'}, tab:'list',
   filter:{q:'',status:'all',month:''}, pages:{}, draft:null
 };
-if(!state.claims){state.claims=[seedClaim()];persist()}
-function persist(){save(LS_CLAIMS,state.claims);save(LS_SET,state.settings);save(LS_USERS,state.users)}
+
+/* ---------- server API ---------- */
+async function api(path,opts){
+  opts=opts||{};const hasBody=opts.body!==undefined;
+  let res;
+  try{res=await fetch(path,{method:opts.method||'GET',credentials:'same-origin',
+    headers:Object.assign({'X-Requested-With':'EcoClaim'},hasBody?{'Content-Type':'application/json'}:{}),body:hasBody?JSON.stringify(opts.body):undefined})}
+  catch(e){throw new Error("Can't reach the EcoClaim server. Check your internet connection and try again.")}
+  let j={};try{j=await res.json()}catch(_){}
+  if(res.status===401&&state.user){sessionEnded(j.error);throw new Error(j.error||'Signed out')}
+  if(!res.ok||j.ok===false)throw new Error(j.error||('Server error '+res.status));
+  return j;
+}
+function applyState(j){if(!j)return;if(j.user)state.user=j.user;if(j.settings)state.settings=Object.assign({},state.settings,j.settings);if(j.claims)state.claims=j.claims;if(j.users)state.users=j.users}
+/* send a change to the server and refresh local data from its reply; returns the reply, or null after showing the error */
+async function act(path,opts,okMsg){
+  try{const j=await api(path,opts);applyState(j);if(okMsg)toast(okMsg);return j}
+  catch(e){if(state.user)toast(e.message,'err');return null}
+}
+function sessionEnded(msg){state.user=null;state.draft=null;state.claims=[];state.users=[];showLogin(msg||'Your session has ended. Please sign in again.')}
 
 /* ---------- auth ---------- */
 const ROLES={staff:{label:'Staff'},hod:{label:'Head of Department (HOD)',short:'HOD'},approver:{label:'Approver',short:'Approver'},admin:{label:'Administrator',short:'Admin'}};
 const emailOk=e=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 const roleChip=r=>`<span class="chip ${r}">${ROLES[r].short||ROLES[r].label}</span>`;
-const hex=buf=>[...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
-const hasCrypto=()=>!!(window.crypto&&crypto.subtle&&crypto.getRandomValues);
-async function hashPw(pw,salt){
-  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
-  return hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:150000,hash:'SHA-256'},key,256));
-}
-async function setPassword(u,pw){u.salt=hex(crypto.getRandomValues(new Uint8Array(16)));u.passHash=await hashPw(pw,u.salt)}
 const pwRule='At least 8 characters, with letters and numbers.';
 const pwOk=pw=>pw.length>=8&&/[A-Za-z]/.test(pw)&&/\d/.test(pw);
 const initials=n=>String(n||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase();
@@ -313,25 +318,30 @@ const isHOD=()=>me()&&me().role==='hod';
 const ownsClaim=c=>c.ownerId?c.ownerId===me().id:(c.claimant||'').trim().toLowerCase()===(me().name||'').trim().toLowerCase();
 const isApprover=()=>me()&&me().role==='approver';
 const canApproveRole=()=>isHOD()||isApprover();
-/* departments a user may approve: an HOD covers their own department, an Approver covers the departments assigned to them */
+/* departments a user may approve: an HOD covers their own department, an Approver covers the departments assigned to them.
+   These checks only shape the screen – the server enforces the same rules. */
 const approveDeptsOf=u=>u.role==='hod'?[u.department]:u.role==='approver'?(u.approveDepts||[]):[];
 const coversDept=(u,d)=>approveDeptsOf(u).includes(d);
 const canSee=c=>isAdmin()||ownsClaim(c)||coversDept(me(),c.department);
-/* approval is restricted to the HOD / Approver of the claim's department, and never on their own claim */
 const canApprove=c=>c.status==='pending'&&coversDept(me(),c.department)&&!ownsClaim(c);
 const canRevoke=c=>c.status==='approved'&&coversDept(me(),c.department)&&!ownsClaim(c);
 const approversFor=c=>state.users.filter(u=>u.active!==false&&coversDept(u,c.department)&&u.id!==c.ownerId);
 const ownerOf=c=>state.users.find(u=>u.id===c.ownerId);
-function getSession(){try{return JSON.parse(sessionStorage.getItem(SS_SESSION)||'null')}catch(e){return null}}
-function setSession(v){try{v?sessionStorage.setItem(SS_SESSION,JSON.stringify(v)):sessionStorage.removeItem(SS_SESSION)}catch(e){}}
 let lastActivity=Date.now();
 ['click','keydown','mousemove','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{lastActivity=Date.now()},{passive:true}));
 setInterval(()=>{if(state.user&&Date.now()-lastActivity>IDLE_MINUTES*60000){logout('You were signed out after '+IDLE_MINUTES+' minutes of inactivity.')}},30000);
 
 const LEAF='<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14Z" fill="#fff"/><path d="M5 19c3-4 6-7 10-10" stroke="#227a46" stroke-width="1.6" stroke-linecap="round"/></svg>';
-function showLogin(msg){
+async function showLogin(msg){
   $('#app').hidden=true;closeModal();const L=$('#login');L.hidden=false;
-  const S=state.settings,first=!state.users.length;
+  let b;
+  try{b=await api('/api/bootstrap')}
+  catch(e){L.innerHTML=`<div class="login-side" style="grid-column:1/-1"><div class="login-card"><h2>Can't connect</h2>
+    <p class="muted">${esc(location.protocol==='file:'?'EcoClaim now runs on a server. Open it from its web address (your Railway link) instead of this file.':e.message)}</p>
+    <button class="btn primary" onclick="location.reload()">Try again</button></div></div>`;return}
+  if(b.user){applyState(b);enterApp();return}
+  state.settings=Object.assign({},state.settings,b.settings);
+  const S=state.settings,first=b.needsSetup,demoUsers=b.demoUsers||[];
   const deptOpts=sel=>S.departments.map(d=>`<option ${d===sel?'selected':''}>${esc(d)}</option>`).join('');
   L.innerHTML=`
   <div class="login-art">
@@ -344,7 +354,7 @@ function showLogin(msg){
   <div class="login-side"><div class="login-card">
     ${first?`<h2>Set up EcoClaim</h2><p class="muted" style="margin:0">Create the first <b>Administrator</b> account. You can then add staff and HODs.</p>
       <form id="setupForm" autocomplete="off">
-        ${!hasCrypto()?`<div class="err-box">This browser can't encrypt passwords. Please open the file in Chrome or Edge.</div>`:''}
+        ${b.setupKeyRequired?`<div class="f"><label>Setup key</label><input class="input" type="password" id="suKey" autocomplete="off"><span class="sub">The <b>SETUP_KEY</b> variable you set in Railway. It stops strangers from claiming the Administrator account.</span></div>`:''}
         <div class="f"><label>Full name</label><input class="input" id="suName" required></div>
         <div class="f"><label>Username</label><input class="input" id="suUser" required placeholder="e.g. admin"></div>
         <div class="f"><label>Email</label><input class="input" type="email" id="suEmail" required placeholder="name@company.com"></div>
@@ -356,7 +366,7 @@ function showLogin(msg){
       </form>
       <div style="display:flex;align-items:center;gap:10px;margin:18px 0 12px;color:var(--muted);font-size:12px"><span style="flex:1;height:1px;background:var(--line)"></span>or just exploring?<span style="flex:1;height:1px;background:var(--line)"></span></div>
       <button class="btn soft" id="demoBtn" type="button" style="width:100%;justify-content:center;padding:11px">Try with demo accounts</button>
-      <p class="sub" style="margin:8px 0 0;text-align:center">Creates sample Admin, HOD and Staff logins. You can remove them later in Admin Configurations.</p>`
+      <p class="sub" style="margin:8px 0 0;text-align:center">Creates sample Admin, HOD, Approver and Staff logins${b.setupKeyRequired?' (needs the setup key above)':''}. Remove them later in Admin Configurations.</p>`
     :`<h2>Welcome back</h2><p class="muted" style="margin:0">Sign in to submit or approve claims.</p>
       <form id="loginForm">
         ${msg?`<div class="note">${esc(msg)}</div>`:''}
@@ -367,75 +377,47 @@ function showLogin(msg){
           <div class="f"><label>Role</label><select class="input" id="lgRole"><option value="">Select…</option>${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v.short||v.label}</option>`).join('')}</select></div>
         </div>
         <div id="lgErr"></div>
-        <button class="btn primary" type="submit">Sign in</button>
+        <button class="btn primary" type="submit" id="lgBtn">Sign in</button>
         <p class="sub" style="margin:0;text-align:center">Forgot your password? Ask your Administrator to reset it.</p>
       </form>
-      ${S.demo&&state.users.some(u=>u.demo)?`<div class="card" style="margin:22px 0 0;box-shadow:none"><div class="card-h" style="padding:12px 14px"><h3 style="font-size:14px">Demo accounts</h3><span class="sub">Password for all: <b>${DEMO_PW}</b></span></div>
-        <div class="stack" style="padding:10px">${state.users.filter(u=>u.demo).map(u=>`<button type="button" class="btn" data-demo="${u.id}" style="justify-content:flex-start;width:100%"><div class="avatar" style="width:28px;height:28px;font-size:11px">${esc(initials(u.name))}</div><span style="flex:1;text-align:left"><b>${esc(u.name)}</b> <span class="sub">@${esc(u.username)}</span></span><span class="sub">${esc(u.department)}</span>${roleChip(u.role)}</button>`).join('')}</div></div>`:''}`}
+      ${S.demo&&demoUsers.length?`<div class="card" style="margin:22px 0 0;box-shadow:none"><div class="card-h" style="padding:12px 14px"><h3 style="font-size:14px">Demo accounts</h3><span class="sub">Password for all: <b>${esc(b.demoPassword)}</b></span></div>
+        <div class="stack" style="padding:10px">${demoUsers.map(u=>`<button type="button" class="btn" data-demo="${esc(u.id)}" style="justify-content:flex-start;width:100%"><div class="avatar" style="width:28px;height:28px;font-size:11px">${esc(initials(u.name))}</div><span style="flex:1;text-align:left"><b>${esc(u.name)}</b> <span class="sub">@${esc(u.username)}</span></span><span class="sub">${esc(u.department)}</span>${roleChip(u.role)}</button>`).join('')}</div></div>`:''}`}
   </div></div>`;
   const err=m=>{$('#lgErr').innerHTML=m?`<div class="err-box">${esc(m)}</div>`:''};
+  const busy=(btn,on,label)=>{btn.disabled=on;if(label)btn.textContent=label};
   if(first){
-    $('#setupForm').onsubmit=async e=>{e.preventDefault();if(!hasCrypto())return err('Open this file in Chrome or Edge.');
-      const name=$('#suName').value.trim(),un=$('#suUser').value.trim().toLowerCase(),pw=$('#suPw').value;
+    const key=()=>($('#suKey')||{}).value||'';
+    $('#setupForm').onsubmit=async e=>{e.preventDefault();err('');
+      const name=$('#suName').value.trim(),un=$('#suUser').value.trim().toLowerCase(),pw=$('#suPw').value,email=$('#suEmail').value.trim().toLowerCase();
       if(!name)return err('Enter your full name.');
       if(!/^[a-z0-9._-]{3,30}$/.test(un))return err('Username: 3–30 letters, numbers, dot, dash or underscore.');
-      const email=$('#suEmail').value.trim().toLowerCase();if(!emailOk(email))return err('Enter a valid email address.');
+      if(!emailOk(email))return err('Enter a valid email address.');
       if(!pwOk(pw))return err(pwRule);if(pw!==$('#suPw2').value)return err('Passwords do not match.');
-      const u={id:uid(),name,username:un,email,department:$('#suDept').value,role:'admin',active:true,mustChange:false,createdAt:new Date().toISOString()};
-      await setPassword(u,pw);state.users.push(u);persist();signIn(u)};
-    $('#demoBtn').onclick=async()=>{if(!hasCrypto())return err('Open this file in Chrome or Edge.');$('#demoBtn').disabled=true;$('#demoBtn').textContent='Creating demo accounts…';await loadDemo()};
+      const btn=e.submitter||$('#setupForm button[type=submit]');busy(btn,true);
+      try{applyState(await api('/api/setup',{method:'POST',body:{setupKey:key(),name,username:un,email,department:$('#suDept').value,password:pw}}));enterApp()}
+      catch(x){err(x.message);busy(btn,false)}};
+    $('#demoBtn').onclick=async()=>{err('');const btn=$('#demoBtn');busy(btn,true,'Creating demo accounts…');
+      try{await api('/api/demo',{method:'POST',body:{setupKey:key()}});showLogin('Demo accounts are ready – click one below to fill in the sign-in form.')}
+      catch(x){err(x.message);busy(btn,false,'Try with demo accounts')}};
     return;
   }
-  L.querySelectorAll('[data-demo]').forEach(b=>b.onclick=()=>{const u=state.users.find(x=>x.id===b.dataset.demo);
-    $('#lgUser').value=u.email||u.username;$('#lgPw').value=DEMO_PW;$('#lgDept').value=u.department;$('#lgRole').value=u.role;err('')});
+  L.querySelectorAll('[data-demo]').forEach(btn=>btn.onclick=()=>{const u=demoUsers.find(x=>x.id===btn.dataset.demo);
+    $('#lgUser').value=u.email||u.username;$('#lgPw').value=b.demoPassword;$('#lgDept').value=u.department;$('#lgRole').value=u.role;err('')});
   $('#lgShow').onclick=()=>{const p=$('#lgPw');p.type=p.type==='password'?'text':'password';$('#lgShow').textContent=p.type==='password'?'Show':'Hide'};
   $('#loginForm').onsubmit=async e=>{e.preventDefault();err('');
-    if(!hasCrypto())return err('This browser can\'t verify passwords. Open the file in Chrome or Edge.');
-    const un=$('#lgUser').value.trim().toLowerCase(),pw=$('#lgPw').value,dept=$('#lgDept').value,role=$('#lgRole').value;
-    if(!un||!pw||!dept||!role)return err('Enter your username or email, password, department and role.');
-    const u=state.users.find(x=>x.username===un||(x.email&&x.email===un)),lockKey=u?u.username:un;
-    const locks=load(LS_LOCK,{}),lk=locks[lockKey]||{n:0,until:0};
-    if(lk.until>Date.now())return err(`Too many failed attempts. Try again in ${Math.ceil((lk.until-Date.now())/60000)} minute(s).`);
-    let ok=false;if(u){ok=(await hashPw(pw,u.salt))===u.passHash&&u.department===dept&&u.role===role}
-    if(!ok){lk.n++;if(lk.n>=5){lk.until=Date.now()+5*60000;lk.n=0}locks[lockKey]=lk;save(LS_LOCK,locks);
-      return err('Sign-in failed. Check your username or email, password, department and role.')}
-    if(u.active===false)return err('This account is disabled. Contact your Administrator.');
-    delete locks[lockKey];save(LS_LOCK,locks);signIn(u)};
+    const login=$('#lgUser').value.trim().toLowerCase(),password=$('#lgPw').value,department=$('#lgDept').value,role=$('#lgRole').value;
+    if(!login||!password||!department||!role)return err('Enter your username or email, password, department and role.');
+    busy($('#lgBtn'),true,'Signing in…');
+    try{applyState(await api('/api/login',{method:'POST',body:{login,password,department,role}}));enterApp(true)}
+    catch(x){err(x.message);busy($('#lgBtn'),false,'Sign in')}};
 }
-/* ---------- demo mode ---------- */
-const DEMO_PW='Demo1234';
-/* demo emails use example.com so a test notification never reaches a real inbox */
-const DEMO_USERS=[['System Admin','admin','Admin','admin'],['TEY KOK LEONG','tey','Sales','hod'],['Timothy Lim','timothy','Sales','staff'],['Lee Mei','leemei','Logistics','hod'],['Ahmad Faiz','ahmad','Logistics','staff'],['Nora Hassan','nora','Finance','approver',['Sales','Logistics']]];
-async function loadDemo(){
-  const S=state.settings;
-  for(const[name,username,department,role,approveDepts]of DEMO_USERS){
-    if(!S.departments.includes(department))S.departments.push(department);
-    const u={id:uid(),name,username,email:username+'@example.com',department,role,approveDepts:approveDepts||[],active:true,mustChange:false,demo:true,createdAt:new Date().toISOString()};await setPassword(u,DEMO_PW);state.users.push(u)}
-  const tim=state.users.find(u=>u.username==='timothy');
-  state.claims.forEach(c=>{if(!c.ownerId&&c.claimant.trim()==='Timothy Lim')c.ownerId=tim.id});
-  const it=(date,from,to,km,desc,o)=>Object.assign(blankItem(date),{from:from||'',to:to||'',km:km??'',desc:desc||''},o||{});
-  const c={id:uid(),demo:true,ownerId:tim.id,ref:nextRef('2026-10'),claimName:'Customer visits – October 2026',claimant:tim.name,email:tim.email,department:'Sales',month:'2026-10',
-    purpose:'Customer meetings and sample collection (DHL, New Asia).',dateClaimed:todayISO(),periodFrom:'2026-10-01',periodTo:'2026-10-31',rate:S.rate,status:'pending',hod:null,
-    items:[it('2026-10-02','Gaya Resort Home','New Asia',38,'Meeting with Suresh'),it('','New Asia','DHL Supply Chain PKFZ',3.5,'Meeting with Syaliny',{toll:'4.20',parking:'3.00'}),it('','DHL Supply Chain PKFZ','Gaya Resort Home',58),
-      it('2026-10-06','Gaya Resort Home','DHL ILC1',11,'Meeting with Anujashini'),it('','DHL ILC1','Gaya Resort Home',11),it('2026-10-06','','','','Lunch meeting with DHL team',{other:'86.50',receipt:'INV-20145'})],
-    history:[],createdAt:new Date().toISOString()};
-  addHistory(c,'created',tim.name);addHistory(c,'submitted',tim.name);state.claims.push(c);
-  S.demo=true;persist();showLogin('Demo accounts are ready – click one below to fill in the sign-in form.');
-}
-function endDemo(){
-  const demoIds=new Set(state.users.filter(u=>u.demo).map(u=>u.id));
-  state.users=state.users.filter(u=>!u.demo);
-  state.claims=state.claims.filter(c=>!c.demo);
-  state.claims.forEach(c=>{if(demoIds.has(c.ownerId))delete c.ownerId;if(c.hod&&demoIds.has(c.hod.userId))delete c.hod.userId});
-  state.settings.demo=false;save(LS_LOCK,{});persist();closeModal();
-  if(!state.users.some(u=>u.id===(me()&&me().id))){state.user=null;state.draft=null;setSession(null);showLogin()}else{toast('Demo accounts removed');render()}
-}
-function signIn(u){state.user=u;setSession({uid:u.id,at:Date.now()});lastActivity=Date.now();u.lastLogin=new Date().toISOString();persist();
+function enterApp(fresh){const u=state.user;lastActivity=Date.now();
   $('#login').hidden=true;$('#login').innerHTML='';$('#app').hidden=false;
   state.tab=state.claims.some(canApprove)?'hod':'list';state.view={name:'list'};state.filter={q:'',status:'all',month:''};state.pages={};render();
-  toast(`Signed in as ${u.name} (${ROLES[u.role].short||ROLES[u.role].label})`);
+  if(fresh)toast(`Signed in as ${u.name} (${ROLES[u.role].short||ROLES[u.role].label})`);
   if(u.mustChange)changePassword(true)}
-function logout(msg){if(!state.user)return;state.user=null;state.draft=null;setSession(null);showLogin(msg||'You have signed out.')}
+async function logout(msg){if(!state.user)return;state.user=null;try{await api('/api/logout',{method:'POST',body:{}})}catch(_){}
+  state.draft=null;state.claims=[];state.users=[];showLogin(msg||'You have signed out.')}
 function changePassword(forced){
   modal(`<div class="card-h"><h3>${forced?'Set a new password':'Change password'}</h3></div><div class="card-b stack">
     ${forced?`<div class="note">Your Administrator gave you a temporary password. Please choose your own before continuing.</div>`:`<div class="f"><label>Current password</label><input class="input" type="password" id="cpOld" autocomplete="current-password"></div>`}
@@ -443,41 +425,14 @@ function changePassword(forced){
     <div class="f"><label>Confirm new password</label><input class="input" type="password" id="cpNew2" autocomplete="new-password"></div>
   </div><div class="foot">${forced?`<button class="btn" id="cpOut">Sign out</button>`:`<button class="btn" data-close>Cancel</button>`}<button class="btn primary" id="cpOk">Save password</button></div>`,forced);
   if(forced)$('#cpOut').onclick=()=>logout();
-  $('#cpOk').onclick=async()=>{const u=me(),nw=$('#cpNew').value;
-    if(!forced&&(await hashPw($('#cpOld').value,u.salt))!==u.passHash)return toast('Current password is incorrect','err');
+  $('#cpOk').onclick=async()=>{const nw=$('#cpNew').value;
     if(!pwOk(nw))return toast(pwRule,'err');if(nw!==$('#cpNew2').value)return toast('Passwords do not match','err');
-    if((await hashPw(nw,u.salt))===u.passHash)return toast('Choose a password different from the current one','err');
-    await setPassword(u,nw);u.mustChange=false;persist();closeModal();toast('Password updated')};
+    const j=await act('/api/password',{method:'POST',body:{current:forced?'':$('#cpOld').value,new:nw}});
+    if(j){closeModal();toast('Password updated')}};
 }
-function nextRef(month){const n=state.settings.seq++;return `CLM-${(month||todayISO().slice(0,7)).replace('-','')}-${String(n).padStart(3,'0')}`}
-
-function seedClaim(){
-  const it=(date,from,to,km,desc,other)=>({id:uid(),date:date||'',from:from||'',to:to||'',km:km??'',toll:'',parking:'',other:other??'',desc:desc||'',receipt:''});
-  const H='Gaya Resort Home',D='DHL Supply Chain PKFZ',N='New Asia';
-  return {id:uid(),ref:'CLM-202609-000',claimName:'Customer visits & deliveries – September 2026',claimant:'Timothy Lim',department:'Sales',month:'2026-09',
-    purpose:'Collection & delivery of goods, sample collection, customer meetings (DHL, New Asia, Petikemas) and KL–JB site visit.',
-    dateClaimed:'2026-08-28',periodFrom:'2026-08-28',periodTo:'2026-09-28',rate:0.5,status:'approved',
-    hod:{name:'TEY KOK LEONG',date:'2026-10-09',remarks:''},
-    items:[
-      it('2026-09-04',H,'VTEB Baker Hugh',10,'Collection of goods'),it('','VTEB Baker Hugh',N,51,'Deliver and meeting with Suresh'),it('',N,D,3.5,'Meeting with Syaliny'),it('',D,H,58),
-      it('2026-09-07',H,'Mectech',10,'Collect goods'),it('','Mectech',N,53,'Deliver goods'),it('',N,D,3.5,'Meeting with Syaliny'),it('',D,H,38),
-      it('2026-09-09',H,'DHL ILC1',11,'Meeting with Anujashini'),it('','DHL ILC1',H,11),
-      it('2026-09-10','','','','232 2486299995 – return flight KL-JB site visit (Syaliny – DHL)',752.6),
-      it('2026-09-10','','','','232 2486299996 – return flight KL-JB site visit (Timothy – LVC)',752.6),
-      it('2026-09-10','','','','A-9QKE6LEGXXSVAV – Grab ride to KLIA (Timothy – LVC)',64.73),
-      it('2026-09-10','','','','A-9QHW224GXDGNAV – Grab ride to KLIA (Syaliny – DHL)',75.71),
-      it('2026-09-11','','','','A-9QRKE5WWXFLKAV – Grab ride from KLIA (Timothy – LVC)',75.73),
-      it('2026-09-11','','','','A-9QRKDB4WX89SAV – Grab ride from KLIA (Syaliny – DHL)',74.71),
-      it('2026-09-14',H,'Petikemas',38,'Meeting and checking printer machine'),it('','Petikemas',D,3.5,'Meeting with Syaliny'),it('',D,H,58),
-      it('2026-09-15',H,'PSE',19,'Collect sample'),it('','PSE',D,34,'Meeting with Syaliny'),it('',D,H,58),
-      it('2026-09-21',H,'Kweng Hong',59,'Collect sample'),it('','Kweng Hong',D,84,'Meeting with Syaliny'),it('',D,'Petikemas',3.5,'Meeting with Calvin'),it('','Petikemas',H,38),
-      it('2026-09-24',H,'DHL ILC1',11,'Meeting with Anujashini'),it('','DHL ILC1',H,11),
-      it('2026-09-25',H,N,38,'Meeting with Suresh & Bala'),it('',N,D,3.5,'Meeting with Liyana'),it('',D,H,58),
-      it('2026-09-26',H,N,38,'Meeting with Elya & Suresh'),it('',N,H,38)
-    ],
-    history:[{at:'2026-08-28T09:00:00',by:'Timothy Lim',action:'submitted',note:''},{at:'2026-10-09T10:00:00',by:'TEY KOK LEONG',action:'approved',note:''}],
-    createdAt:'2026-08-28T09:00:00',updatedAt:'2026-10-09T10:00:00'};
-}
+async function endDemo(){closeModal();
+  const j=await act('/api/demo/end',{method:'POST',body:{}});if(!j)return;
+  if(j.signedOut){state.user=null;state.claims=[];state.users=[];showLogin('Demo accounts removed.')}else{toast('Demo accounts removed');render()}}
 
 function totals(c){let km=0,toll=0,park=0,other=0;(c.items||[]).forEach(i=>{km+=num(i.km);toll+=num(i.toll);park+=num(i.parking);other+=num(i.other)});
   const mileage=r2(km*num(c.rate));return{km:r2(km),mileage,toll:r2(toll),park:r2(park),other:r2(other),total:r2(mileage+toll+park+other)}}
@@ -487,7 +442,6 @@ const getClaim=id=>state.claims.find(c=>c.id===id);
 const canEdit=c=>ownsClaim(c)&&(c.status==='draft'||c.status==='rejected');
 const canDelete=c=>isAdmin()||(ownsClaim(c)&&(c.status==='draft'||c.status==='rejected'));
 const fileBase=c=>`Mileage & Expenses Claim Form (${(c.claimant||'Claimant').trim()} - ${monthLabel(c.month)||'Undated'})`.replace(/[\\/:*?"<>|]/g,'-');
-function addHistory(c,action,by,note){const at=new Date().toISOString();c.history.push({at,by,action,note:note||''});c.updatedAt=at}
 
 /* ---------- chrome ---------- */
 function tickClock(){const d=new Date(),day=d.getDate(),sfx=(day%10===1&&day!==11)?'st':(day%10===2&&day!==12)?'nd':(day%10===3&&day!==13)?'rd':'th';
@@ -606,8 +560,8 @@ function renderList(){
     else if(a==='del')askDelete(c)});
 }
 
-function askDelete(c){confirmBox('Delete claim?',`<p style="margin:0">This permanently removes <b>${esc(c.claimName||c.ref)}</b> (${esc(c.ref)}) from this browser.</p>`,'Delete','danger',()=>{
-  state.claims=state.claims.filter(x=>x.id!==c.id);persist();toast('Claim deleted');state.view={name:'list'};render()})}
+function askDelete(c){confirmBox('Delete claim?',`<p style="margin:0">This permanently removes <b>${esc(c.claimName||c.ref)}</b> (${esc(c.ref)}) for everyone.</p>`,'Delete','danger',async()=>{
+  if(await act('/api/claims/'+encodeURIComponent(c.id),{method:'DELETE'},'Claim deleted')){state.view={name:'list'};render()}})}
 
 /* ---------- editor ---------- */
 function startNew(){const S=state.settings,m=todayISO().slice(0,7),[pf,pt]=monthBounds(m);
@@ -685,7 +639,7 @@ function summaryHTML(c,t){return `
   <div class="sum-row"><span>Other expenses</span><b>${fmt2(t.other)}</b></div>
   <div class="sum-total"><span>Total Claim</span><b>${rm(t.total)}</b></div>`}
 
-function saveDraft(submit){
+async function saveDraft(submit){
   const d=state.draft,v=$('#view');
   d.items=d.items.filter(i=>!isBlankItem(i));
   if(submit){
@@ -698,18 +652,15 @@ function saveDraft(submit){
     else if(d.items.some(i=>[i.km,i.toll,i.parking,i.other].some(x=>num(x)<0)))msg='Amounts cannot be negative.';
     if(msg){if(!d.items.length)d.items.push(blankItem());renderRows();renderTotals();toast(msg,'err');return}
   }
+  const claim={claimName:d.claimName,month:d.month,purpose:d.purpose,dateClaimed:d.dateClaimed,periodFrom:d.periodFrom,periodTo:d.periodTo,rate:d.rate,items:d.items};
   if(!d.items.length)d.items.push(blankItem());
-  let c;
-  if(!d.id){c=Object.assign({},d,{id:uid(),ownerId:me().id,claimant:me().name,email:me().email||'',department:me().department,ref:nextRef(d.month),history:[],createdAt:new Date().toISOString()});addHistory(c,'created',me().name);state.claims.push(c)}
-  else{c=getClaim(d.id);if(!c||!canEdit(c)){state.draft=null;toast('This claim can no longer be edited','err');state.view={name:'list'};return render()}
-    const keep={history:c.history,ownerId:c.ownerId||me().id,claimant:c.claimant,department:c.department,status:c.status};Object.assign(c,d,keep);addHistory(c,'edited',me().name)}
-  delete c._dirty;
-  if(submit){c.status='pending';addHistory(c,'submitted',me().name)}
-  c.items=c.items.filter(i=>!isBlankItem(i));
-  persist();state.draft=null;
+  const btns=[$('#edSave'),$('#edSubmit')];btns.forEach(b=>b.disabled=true);
+  const j=await act(d.id?'/api/claims/'+encodeURIComponent(d.id):'/api/claims',{method:d.id?'PUT':'POST',body:{claim,submit:!!submit}});
+  if(!j){btns.forEach(b=>{if(b)b.disabled=false});renderRows();renderTotals();return}
+  state.draft=null;
   toast(submit?'Submitted for approval':'Draft saved');
-  state.tab='list';state.view={name:'view',id:c.id};render();
-  if(submit)notify(c,'submitted');
+  state.tab='list';state.view={name:'view',id:j.claim.id};render();
+  if(submit)notify(getClaim(j.claim.id),'submitted');
 }
 
 /* ---------- view / approval ---------- */
@@ -768,14 +719,20 @@ function renderView(c){
   on('vXls',()=>exportExcel(c));on('vPdf',()=>exportPDF(c));
   on('vEdit',()=>startEdit(c));
   on('vDel',()=>askDelete(c));
-  on('vSubmit',()=>{const tt=totals(c);if(!c.claimName||!c.purpose||!c.month||!c.items.length||tt.total<=0){toast('Complete the claim before submitting','err');return startEdit(c)}
-    if(!canEdit(c))return;c.status='pending';addHistory(c,'submitted',me().name);persist();toast('Submitted for approval');render();notify(c,'submitted')});
-  on('vWithdraw',()=>confirmBox('Withdraw claim?','<p style="margin:0">The claim returns to Draft so you can edit it. You will need to resubmit it to your HOD.</p>','Withdraw',false,()=>{if(!(ownsClaim(c)&&c.status==='pending'))return;c.status='draft';addHistory(c,'withdrawn',me().name);persist();render()}));
-  on('vReopen',()=>confirmBox('Revoke approval?','<p style="margin:0">The claim goes back to <b>Pending HOD</b> for a new decision.</p>','Revoke',true,()=>{if(!canRevoke(c))return;c.status='pending';addHistory(c,'reopened',me().name);c.hod=null;persist();render()}));
+  on('vSubmit',async()=>{const tt=totals(c);if(!c.claimName||!c.purpose||!c.month||!c.items.length||tt.total<=0){toast('Complete the claim before submitting','err');return startEdit(c)}
+    if(await claimAction(c,{action:'submit'},'Submitted for approval'))notify(getClaim(c.id),'submitted')});
+  on('vWithdraw',()=>confirmBox('Withdraw claim?','<p style="margin:0">The claim returns to Draft so you can edit it. You will need to resubmit it to your HOD.</p>','Withdraw',false,()=>claimAction(c,{action:'withdraw'},'Claim withdrawn to draft')));
+  on('vReopen',()=>confirmBox('Revoke approval?','<p style="margin:0">The claim goes back to <b>Pending HOD</b> for a new decision.</p>','Revoke',true,()=>claimAction(c,{action:'revoke'},'Approval revoked')));
   on('vDup',()=>{const m=todayISO().slice(0,7),[pf,pt]=monthBounds(m);state.draft=Object.assign(JSON.parse(JSON.stringify(c)),{id:null,ref:'',ownerId:me().id,claimant:me().name,email:me().email||'',department:me().department,status:'draft',hod:null,history:[],month:m,periodFrom:pf,periodTo:pt,dateClaimed:todayISO(),claimName:c.claimName+' (copy)',_dirty:true});
     state.draft.items.forEach(i=>i.id=uid());state.view={name:'edit'};render();toast('Copied into a new draft – update dates before submitting')});
-  on('vNotify',()=>notify(c,'submitted',true));on('vNotifyOwner',()=>notify(c,c.status,true));
+  on('vNotify',()=>emailNotice(c,'submitted'));on('vNotifyOwner',()=>emailNotice(c,c.status));
   on('hodApprove',()=>hodDecide(c,'approved'));on('hodReject',()=>hodDecide(c,'rejected'));
+}
+/* run a workflow action on the server, then show the updated claim */
+async function claimAction(c,body,okMsg){
+  const j=await act('/api/claims/'+encodeURIComponent(c.id)+'/action',{method:'POST',body},okMsg);
+  if(j&&state.view.name==='view'&&state.view.id===c.id)render();
+  return j;
 }
 /* ---------- email notifications (opens a pre-filled draft in the user's mail app) ---------- */
 const claimantAddr=c=>{const em=c.email||(ownerOf(c)||{}).email;return em?[{name:c.claimant,email:em}]:[]};
@@ -793,63 +750,30 @@ function noticeCc(c,kind){
 }
 function composeNotice(c,kind){
   const t=totals(c),S=state.settings,rcpt=noticeRecipients(c,kind),cc=noticeCc(c,kind),ok=kind==='approved';
-  let subject,intro,headline,color;
-  if(kind==='submitted'){subject=`[EcoClaim] Approval needed: ${c.claimName} – ${c.claimant} (${rm(t.total)})`;headline='Approval needed';color='#b7791f';
+  let subject,intro;
+  if(kind==='submitted'){subject=`[EcoClaim] Approval needed: ${c.claimName} – ${c.claimant} (${rm(t.total)})`;
     intro=`Dear ${rcpt.map(r=>r.name).join(' / ')||'Approver'},\n\nA mileage & expenses claim has been submitted for your approval.`}
-  else if(ok){subject=`[EcoClaim] Claim APPROVED: ${c.claimName} – ${c.claimant} (${rm(t.total)})`;headline='Claim approved';color='#2f9e5b';
+  else if(ok){subject=`[EcoClaim] Claim APPROVED: ${c.claimName} – ${c.claimant} (${rm(t.total)})`;
     intro=`Dear ${c.hod.name}${c.hod.name!==c.claimant?` and ${c.claimant}`:''},\n\nThe mileage & expenses claim by ${c.claimant} has been APPROVED by ${c.hod.name} on ${dmy(c.hod.date)}.`+(c.hod.remarks?`\n\nRemarks: ${c.hod.remarks}`:'')}
-  else{subject=`[EcoClaim] Claim RETURNED: ${c.claimName} (${rm(t.total)})`;headline='Claim returned for correction';color='#c0392b';
+  else{subject=`[EcoClaim] Claim RETURNED: ${c.claimName} (${rm(t.total)})`;
     intro=`Dear ${c.claimant},\n\nYour mileage & expenses claim has been RETURNED for correction by ${c.hod.name} on ${dmy(c.hod.date)}.`+(c.hod.remarks?`\n\nRemarks: ${c.hod.remarks}`:'')}
-  const action=kind==='submitted'?'Please sign in to EcoClaim to review and approve.':kind==='rejected'?'Please sign in to EcoClaim, correct the claim and resubmit.':'Sign in to EcoClaim for details.';
+  const link=location.origin+location.pathname;
+  const action=kind==='submitted'?`Please sign in to EcoClaim to review and approve:\n${link}`:kind==='rejected'?`Please sign in to EcoClaim, correct the claim and resubmit:\n${link}`:`Sign in to EcoClaim for details:\n${link}`;
   const rows=[['Claim ref',c.ref],['Claim name',c.claimName],['Claimant',`${c.claimant} (${c.department})`],['Month of claim',monthLabel(c.month)],['Purpose',c.purpose],['Total mileage',`${fmtKm(t.km)} km`],['Total claim',rm(t.total)]];
   const body=`${intro}\n\n${rows.map(r=>`${r[0]}: ${r[1]}`).join('\n')}\n\n${action}\n\nRegards,\n${me().name}\n${S.company}`;
-  const html=`<div style="font-family:Arial,Helvetica,sans-serif;color:#1d2a22;max-width:560px">
-<div style="background:#2f9e5b;color:#fff;padding:14px 18px;border-radius:8px 8px 0 0"><b style="font-size:16px">${esc(S.company)}</b><br><span style="font-size:13px">Mileage &amp; Expenses Claim</span></div>
-<div style="border:1px solid #c6e8d0;border-top:0;padding:18px;border-radius:0 0 8px 8px">
-<div style="display:inline-block;border:2px solid ${color};color:${color};border-radius:6px;padding:4px 10px;font-weight:bold;font-size:13px;text-transform:uppercase;letter-spacing:.05em">${esc(headline)}</div>
-<p style="line-height:1.5">${esc(intro).replace(/\n/g,'<br>')}</p>
-<table style="border-collapse:collapse;font-size:14px;width:100%">${rows.map((r,i)=>`<tr style="background:${i%2?'#fff':'#f2faf4'}"><td style="padding:7px 10px;color:#6b7a71;width:140px">${esc(r[0])}</td><td style="padding:7px 10px;${i===rows.length-1?'font-weight:bold;color:#227a46;font-size:16px':''}">${esc(r[1])}</td></tr>`).join('')}</table>
-<p style="line-height:1.5">${esc(action)}</p>
-<p style="color:#6b7a71;font-size:13px">Regards,<br>${esc(me().name)}<br>${esc(S.company)}</p>
-<p style="color:#9aa7a0;font-size:11px;border-top:1px solid #e3ece6;padding-top:8px">Sent automatically by EcoClaim.</p></div></div>`;
-  return{rcpt,cc,subject,body,html};
+  return{rcpt,cc,subject,body};
 }
 /* opens a pre-filled draft in the user's mail app */
 function emailNotice(c,kind){
   const n=composeNotice(c,kind);
   if(!n.rcpt.length)return toast('No email address on file for the recipient – ask your Administrator to add one','err');
-  addHistory(c,'emailed',me().name,'Draft opened to: '+n.rcpt.map(r=>r.email).join(', ')+(n.cc.length?' (cc '+n.cc.map(r=>r.email).join(', ')+')':''));persist();
   window.location.href=`mailto:${n.rcpt.map(r=>r.email).join(',')}?${n.cc.length?`cc=${n.cc.map(r=>r.email).join(',')}&`:''}subject=${encodeURIComponent(n.subject)}&body=${encodeURIComponent(n.body)}`;
-  setTimeout(()=>{if(state.view.name==='view'&&state.view.id===c.id)render()},300);
+  claimAction(c,{action:'emailed',note:'Draft opened to: '+n.rcpt.map(r=>r.email).join(', ')+(n.cc.length?' (cc '+n.cc.map(r=>r.email).join(', ')+')':'')});
 }
-/* ---------- SMTP relay (mail-relay/mail_relay.py) ---------- */
-async function relayCall(path,R,payload){
-  const url=String((R&&R.url)||'').trim().replace(/\/+$/,'');
-  if(!url)throw new Error('No mail relay address set');
-  let res;
-  try{res=await fetch(url+path,payload?{method:'POST',headers:{'Content-Type':'application/json','X-Relay-Key':R.key||''},body:JSON.stringify(payload)}:{headers:{'X-Relay-Key':R.key||''}})}
-  catch(e){throw new Error(`Can't reach the mail relay at ${url} – is it running?`)}
-  let j={};try{j=await res.json()}catch(_){}
-  if(!res.ok||!j.ok)throw new Error(j.error||`Mail relay error ${res.status}`);
-  return j;
-}
-/* auto = triggered by a submit/decision (respects the auto-send switches); manual = an "Email …" button */
-async function notify(c,kind,manual){
-  const R=state.settings.relay||{};
-  const useRelay=R.url&&(manual||(R.auto&&R.auto[kind]));
-  if(!useRelay){if(manual)emailNotice(c,kind);else offerEmail(c,kind);return}
-  const n=composeNotice(c,kind);
-  if(!n.rcpt.length){toast('No email address on file for the recipient – email not sent','err');return}
-  const to=n.rcpt.map(r=>r.email),cc=n.cc.map(r=>r.email);
-  toast('Sending email…');
-  try{await relayCall('/send',R,{to,cc,subject:n.subject,text:n.body,html:n.html,reply_to:me().email||''});
-    addHistory(c,'emailed',me().name,'Sent automatically to '+to.join(', ')+(cc.length?' (cc '+cc.join(', ')+')':''));persist();
-    toast('✓ Email sent to '+n.rcpt.map(r=>r.name).join(', ')+(n.cc.length?' (cc '+n.cc.map(r=>r.name).join(', ')+')':''));
-    if(state.view.name==='view'&&state.view.id===c.id&&!$('#ovl'))render()}
-  catch(e){toast('Automatic email failed: '+e.message,'err');offerEmail(c,kind,true)}
-}
-function offerEmail(c,kind,force){
-  if(state.settings.notify===false&&!force)return;
+/* after a submit/decision: offer the email draft (can be switched off in Admin Configurations) */
+function notify(c,kind){if(c)offerEmail(c,kind)}
+function offerEmail(c,kind){
+  if(state.settings.notify===false)return;
   const rcpt=noticeRecipients(c,kind);if(!rcpt.length)return;
   const what=kind==='submitted'?'Let the approver know this claim is waiting for them.':`Let ${esc(c.claimant)} know the claim was ${kind==='approved'?'approved':'returned'}.`;
   const fmtR=list=>list.map(r=>`<b>${esc(r.name)}</b> &lt;${esc(r.email)}&gt;`).join(', '),cc=noticeCc(c,kind);
@@ -866,54 +790,36 @@ function hodDecide(c,decision){
   const t=totals(c);
   confirmBox(decision==='approved'?'Approve this claim?':'Return this claim?',
     `<p style="margin:0">${decision==='approved'?'Approve':'Return'} <b>${esc(c.claimName)}</b> by ${esc(c.claimant)} for <b>${rm(t.total)}</b>?</p>`,
-    decision==='approved'?'Approve':'Return to claimant',decision!=='approved',()=>{
-      if(!canApprove(c))return;
-      c.status=decision;c.hod={name,userId:me().id,role:me().role,email:me().email||'',date,remarks:rem};addHistory(c,decision,name,rem);
-      persist();toast(decision==='approved'?'Claim approved ✓':'Claim returned to claimant');render();notify(c,decision)});
+    decision==='approved'?'Approve':'Return to claimant',decision!=='approved',async()=>{
+      const j=await claimAction(c,{action:decision==='approved'?'approve':'reject',date,remarks:rem},decision==='approved'?'Claim approved ✓':'Claim returned to claimant');
+      if(j)notify(getClaim(c.id),decision)});
 }
 
 /* ---------- settings ---------- */
-function openSettings(){if(!isAdmin())return;const S=state.settings,R=S.relay||{},A=R.auto||{};
+function openSettings(){if(!isAdmin())return;const S=state.settings;
   modal(`<div class="card-h"><h3>Admin Configurations</h3></div><div class="card-b"><div class="grid" style="grid-template-columns:1fr 1fr">
     <div class="f c4"><label>Company name</label><input class="input" id="sCo" value="${esc(S.company)}"></div>
     <div class="f c4"><label>Default mileage rate (RM/km)</label><input class="input" type="number" step="0.01" min="0" id="sRate" value="${esc(S.rate)}"></div>
     <div class="f c4"><label>Departments <span class="sub">(comma separated)</span></label><input class="input" id="sDept" value="${esc(S.departments.join(', '))}"></div>
-    <div class="f c4"><label style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="sNotify" ${S.notify!==false?'checked':''}>Offer to email the approver / claimant after a claim is submitted, approved or returned</label></div>
-    <div class="f c4" style="border-top:1px solid var(--line);padding-top:14px"><label style="font-size:13.5px">Automatic email (SMTP)</label><span class="sub">Start <b>mail-relay\\start-mail-relay.bat</b> on the PC that sends email, then enter its address and the <b>relay_key</b> from mail-relay\\config.json.</span></div>
-    <div class="f"><label>Mail relay address</label><input class="input" id="sRelayUrl" value="${esc(R.url||'')}" placeholder="http://127.0.0.1:8025"></div>
-    <div class="f"><label>Relay key</label><input class="input" type="password" id="sRelayKey" value="${esc(R.key||'')}" autocomplete="off"></div>
-    <div class="f c4"><label>Send automatically when a claim is…</label><div class="checks">
-      <label><input type="checkbox" id="sAutoApproved" ${A.approved!==false?'checked':''}>Approved → approver, CC claimant</label>
-      <label><input type="checkbox" id="sAutoRejected" ${A.rejected!==false?'checked':''}>Returned → claimant, CC approver</label>
-      <label><input type="checkbox" id="sAutoSubmitted" ${A.submitted?'checked':''}>Submitted → approver</label></div></div>
-    <div class="f c4" style="flex-direction:row;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn sm" id="sRelayTest">Send test email to me</button><span class="sub" id="sRelayMsg"></span></div>
-    <div class="f c4"><div class="note">Claims and user accounts are saved in this browser on this computer. Use Backup to move them to another PC or keep a copy.</div></div>
-    ${S.demo&&state.users.some(u=>u.demo)?`<div class="f c4"><div class="note warn"><b>Demo mode is on.</b> The demo accounts share a public password. Remove them before real use – this also deletes the demo claims and signs you out if you're using a demo account.</div><button class="btn sm danger" id="sEndDemo" style="align-self:flex-start;margin-top:6px">Remove demo accounts</button></div>`:''}
-    <div class="f c4" style="flex-direction:row;gap:8px;flex-wrap:wrap"><button class="btn sm" id="sBak">Backup claims (.json)</button><label class="btn sm" style="font-weight:500">Restore backup<input type="file" accept=".json,application/json" id="sRes" hidden></label></div>
+    <div class="f c4"><label style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="sNotify" ${S.notify!==false?'checked':''}>Offer an email draft to the approver / claimant after a claim is submitted, approved or returned</label></div>
+    <div class="f c4"><div class="note">Users and claims are stored on the EcoClaim server and shared by everyone who signs in. Download a backup now and then to keep your own copy. Restore also imports a backup from the old browser-only version.</div></div>
+    ${S.demo?`<div class="f c4"><div class="note warn"><b>Demo mode is on.</b> The demo accounts share a public password. Remove them before real use – this also deletes the demo claims and signs you out if you're using a demo account.</div><button class="btn sm danger" id="sEndDemo" style="align-self:flex-start;margin-top:6px">Remove demo accounts</button></div>`:''}
+    <div class="f c4" style="flex-direction:row;gap:8px;flex-wrap:wrap"><button class="btn sm" id="sBak">Download backup (.json)</button><label class="btn sm" style="font-weight:500">Restore backup<input type="file" accept=".json,application/json" id="sRes" hidden></label></div>
   </div></div><div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="sSave">Save</button></div>`);
-  $('#sSave').onclick=()=>{S.company=$('#sCo').value.trim()||DEFAULT_SETTINGS.company;S.rate=num($('#sRate').value);
-    const depts=$('#sDept').value.split(',').map(x=>x.trim()).filter(Boolean),inUse=[...new Set(state.users.map(u=>u.department))].filter(d=>!depts.includes(d));
-    if(inUse.length)return toast(`Can't remove ${inUse.join(', ')} – users are still assigned to it`,'err');
-    S.departments=depts.length?depts:DEFAULT_SETTINGS.departments.slice();S.notify=$('#sNotify').checked;S.relay=relayForm();
-    state.users.forEach(u=>{if(u.approveDepts)u.approveDepts=u.approveDepts.filter(d=>S.departments.includes(d))});
-    persist();closeModal();toast('Settings saved');render()};
-  const relayForm=()=>({url:$('#sRelayUrl').value.trim(),key:$('#sRelayKey').value.trim(),auto:{approved:$('#sAutoApproved').checked,rejected:$('#sAutoRejected').checked,submitted:$('#sAutoSubmitted').checked}});
-  $('#sRelayTest').onclick=async()=>{const msg=$('#sRelayMsg'),R2=relayForm();
-    if(!me().email){msg.textContent='Add an email to your own account first.';return}
-    msg.style.color='';msg.textContent='Sending…';
-    try{await relayCall('/send',R2,{to:[me().email],subject:'[EcoClaim] Test email',text:`This is a test email from EcoClaim.\n\nIf you received it, automatic email is working.\n\n${S.company}`,
-        html:`<div style="font-family:Arial,sans-serif"><div style="background:#2f9e5b;color:#fff;padding:12px 16px;border-radius:8px"><b>${esc(S.company)}</b> – EcoClaim</div><p>This is a test email. If you received it, automatic email is working. ✓</p></div>`});
-      msg.style.color='var(--g700)';msg.textContent='✓ Sent to '+me().email+' – check your inbox.'}
-    catch(e){msg.style.color='var(--red)';msg.textContent=e.message}};
+  $('#sSave').onclick=async()=>{
+    const departments=$('#sDept').value.split(',').map(x=>x.trim()).filter(Boolean);
+    const j=await act('/api/settings',{method:'PUT',body:{company:$('#sCo').value.trim(),rate:num($('#sRate').value),departments,notify:$('#sNotify').checked}},'Settings saved');
+    if(j){closeModal();render()}};
   const ed=$('#sEndDemo');if(ed)ed.onclick=()=>{const realAdmin=state.users.some(u=>!u.demo&&u.role==='admin'&&u.active!==false);
     confirmBox('Remove demo accounts?',`<p style="margin:0">All demo users and demo claims will be deleted.${realAdmin?'':' There is no real Administrator yet, so you will go back to the setup screen to create one.'}</p>`,'Remove demo accounts',true,endDemo)};
-  $('#sBak').onclick=()=>download(new Blob([JSON.stringify({settings:S,users:state.users,claims:state.claims},null,2)],{type:'application/json'}),`EcoClaim backup ${todayISO()}.json`);
-  $('#sRes').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const data=JSON.parse(r.result);if(!Array.isArray(data.claims))throw 0;
-      const hasUsers=Array.isArray(data.users)&&data.users.some(u=>u.role==='admin'&&u.active!==false);
-      confirmBox('Restore backup?',`<p style="margin:0">Replace the ${state.claims.length} claim(s) in this browser with ${data.claims.length} claim(s) from the backup${hasUsers?` and the user list with ${data.users.length} user(s)`:''}?${hasUsers?' You will be signed out if your account is not in the backup.':''}</p>`,'Restore',true,()=>{
-        state.claims=data.claims;if(data.settings)Object.assign(state.settings,data.settings);if(hasUsers)state.users=data.users;persist();toast('Backup restored');
-        const still=state.users.find(u=>u.id===me().id&&u.active!==false);if(!still)return logout('Backup restored. Please sign in again.');state.user=still;state.view={name:'list'};render()})}
-    catch(_){toast('That file is not a valid EcoClaim backup','err')}};r.readAsText(f)};
+  $('#sBak').onclick=async()=>{try{const j=await api('/api/backup');download(new Blob([JSON.stringify(j,null,2)],{type:'application/json'}),`EcoClaim backup ${todayISO()}.json`)}catch(e){toast(e.message,'err')}};
+  $('#sRes').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{let data;
+    try{data=JSON.parse(r.result);if(!Array.isArray(data.claims))throw 0}catch(_){return toast('That file is not a valid EcoClaim backup','err')}
+    const hasUsers=Array.isArray(data.users)&&data.users.some(u=>u.role==='admin'&&u.active!==false);
+    confirmBox('Restore backup?',`<p style="margin:0">Replace all ${state.claims.length} claim(s) on the server with ${data.claims.length} claim(s) from the backup${hasUsers?` and the user list with ${data.users.length} user(s)`:''}? Everyone will see the restored data.${hasUsers?' You will be signed out if your account is not in the backup.':''}</p>`,'Restore',true,async()=>{
+      const j=await act('/api/restore',{method:'POST',body:data});if(!j)return;
+      if(j.signedOut)return sessionEnded('Backup restored. Please sign in again.');
+      toast('Backup restored');state.view={name:'list'};render()})};r.readAsText(f)};
 }
 
 /* ---------- users (admin) ---------- */
@@ -926,7 +832,7 @@ function renderUsers(){
   ${noHod.length?`<div class="note warn" style="margin-bottom:12px"><b>No HOD or Approver for:</b> ${noHod.map(esc).join(', ')}. Claims from these departments cannot be approved until you add an HOD or assign an Approver.</div>`:''}
   ${noEmail.length?`<div class="note" style="margin-bottom:18px"><b>Missing email:</b> ${noEmail.map(u=>esc(u.name)).join(', ')}. Add one so they can sign in by email and receive notifications.</div>`:''}
   <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Username / Email</th><th>Department</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>
-  ${list.map(u=>`<tr data-id="${u.id}"><td><div style="display:flex;gap:10px;align-items:center"><div class="avatar" style="width:30px;height:30px;font-size:11.5px">${esc(initials(u.name))}</div><span class="nm">${esc(u.name)}</span>${u.id===me().id?'<span class="sub">(you)</span>':''}</div></td>
+  ${list.map(u=>`<tr data-id="${esc(u.id)}"><td><div style="display:flex;gap:10px;align-items:center"><div class="avatar" style="width:30px;height:30px;font-size:11.5px">${esc(initials(u.name))}</div><span class="nm">${esc(u.name)}</span>${u.id===me().id?'<span class="sub">(you)</span>':''}</div></td>
     <td><div class="muted">@${esc(u.username)}</div><div class="sub">${u.email?esc(u.email):'<span style="color:var(--red)">no email</span>'}</div></td><td>${esc(u.department)}</td>
     <td>${roleChip(u.role)}${u.role==='approver'?`<div class="sub" style="margin-top:3px">Approves: ${esc((u.approveDepts||[]).join(', ')||'— none —')}</div>`:''}</td>
     <td>${u.active===false?'<span class="chip off">Disabled</span>':u.mustChange?'<span class="chip hod">Temp password</span>':'<span class="chip staff">Active</span>'}</td>
@@ -935,13 +841,11 @@ function renderUsers(){
   </tbody></table></div></div>
   <div class="note">Sign-in needs <b>username or email, password, department and role</b> to all match the account. Only an <b>HOD</b> (for their own department) or an <b>Approver</b> (for the departments assigned to them) can approve – never their own claim.</div>`;
   $('#uAdd').onclick=()=>userForm(null);
-  $('#view').querySelectorAll('tr[data-id] [data-a]').forEach(b=>b.onclick=()=>{const u=state.users.find(x=>x.id===b.closest('tr').dataset.id),a=b.dataset.a;
+  $('#view').querySelectorAll('tr[data-id] [data-a]').forEach(b=>b.onclick=async()=>{const u=state.users.find(x=>x.id===b.closest('tr').dataset.id),a=b.dataset.a;
     if(a==='edit')userForm(u);
     else if(a==='pw')resetPw(u);
-    else if(a==='toggle'){if(u.active!==false&&u.role==='admin'&&activeAdmins()<=1)return toast('Keep at least one active Administrator','err');
-      u.active=u.active===false;persist();toast(`${u.name} ${u.active?'enabled':'disabled'}`);renderUsers()}});
+    else if(a==='toggle'){if(await act('/api/users/'+encodeURIComponent(u.id)+'/toggle',{method:'POST',body:{}},`${u.name} ${u.active===false?'enabled':'disabled'}`))renderUsers()}});
 }
-const activeAdmins=()=>state.users.filter(u=>u.role==='admin'&&u.active!==false).length;
 function userForm(u){
   const S=state.settings,isNew=!u;
   modal(`<div class="card-h"><h3>${isNew?'Add user':'Edit user'}</h3></div><div class="card-b"><div class="grid" style="grid-template-columns:1fr 1fr">
@@ -955,28 +859,23 @@ function userForm(u){
   </div></div><div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="ufOk">${isNew?'Create user':'Save'}</button></div>`);
   const syncApv=()=>{$('#ufApvWrap').hidden=$('#ufRole').value!=='approver'};syncApv();$('#ufRole').onchange=syncApv;
   $('#ufOk').onclick=async()=>{
-    const name=$('#ufName').value.trim(),un=$('#ufUser').value.trim().toLowerCase(),email=$('#ufEmail').value.trim().toLowerCase(),dept=$('#ufDept').value,role=$('#ufRole').value;
+    const name=$('#ufName').value.trim(),username=$('#ufUser').value.trim().toLowerCase(),email=$('#ufEmail').value.trim().toLowerCase(),department=$('#ufDept').value,role=$('#ufRole').value;
     const approveDepts=role==='approver'?[...document.querySelectorAll('#ufApvWrap input:checked')].map(x=>x.value):[];
     if(!name)return toast('Enter the full name','err');
-    if(!/^[a-z0-9._-]{3,30}$/.test(un))return toast('Username: 3–30 letters, numbers, dot, dash or underscore','err');
+    if(!/^[a-z0-9._-]{3,30}$/.test(username))return toast('Username: 3–30 letters, numbers, dot, dash or underscore','err');
     if(!emailOk(email))return toast('Enter a valid email address','err');
-    if(state.users.some(x=>x.username===un&&(!u||x.id!==u.id)))return toast('That username is already taken','err');
-    if(state.users.some(x=>(x.email===email||x.username===email)&&(!u||x.id!==u.id)))return toast('That email is already used by another user','err');
     if(role==='approver'&&!approveDepts.length)return toast('Tick at least one department this Approver can approve','err');
-    if(u&&u.role==='admin'&&role!=='admin'&&u.active!==false&&activeAdmins()<=1)return toast('Keep at least one active Administrator','err');
-    if(isNew){const pw=$('#ufPw').value;if(!pwOk(pw))return toast(pwRule,'err');
-      const nu={id:uid(),name,username:un,email,department:dept,role,approveDepts,active:true,mustChange:true,createdAt:new Date().toISOString()};await setPassword(nu,pw);state.users.push(nu)}
-    else{const oldName=u.name;Object.assign(u,{name,username:un,email,department:dept,role,approveDepts});
-      state.claims.forEach(c=>{if(c.ownerId===u.id){if(c.claimant===oldName)c.claimant=name;if(c.status!=='approved')c.email=email}});
-      if(u.id===me().id)state.user=u}
-    persist();closeModal();toast(isNew?`User ${name} created`:'User updated');render()};
+    const body={name,username,email,department,role,approveDepts};
+    if(isNew){body.password=$('#ufPw').value;if(!pwOk(body.password))return toast(pwRule,'err')}
+    const j=await act(isNew?'/api/users':'/api/users/'+encodeURIComponent(u.id),{method:isNew?'POST':'PUT',body},isNew?`User ${name} created`:'User updated');
+    if(j){closeModal();render()}};
 }
 function resetPw(u){
   modal(`<div class="card-h"><h3>Reset password – ${esc(u.name)}</h3></div><div class="card-b stack">
-    <div class="f"><label>New temporary password</label><input class="input" id="rpPw" autocomplete="new-password"><span class="sub">${pwRule} ${u.id===me().id?'':'They must change it at next sign-in.'}</span></div></div>
+    <div class="f"><label>New temporary password</label><input class="input" id="rpPw" autocomplete="new-password"><span class="sub">${pwRule} ${u.id===me().id?'':'They must change it at next sign-in, and any open session of theirs is signed out.'}</span></div></div>
     <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="rpOk">Reset password</button></div>`);
-  $('#rpOk').onclick=async()=>{const pw=$('#rpPw').value;if(!pwOk(pw))return toast(pwRule,'err');await setPassword(u,pw);u.mustChange=u.id!==me().id;
-    const locks=load(LS_LOCK,{});delete locks[u.username];save(LS_LOCK,locks);persist();closeModal();toast('Password reset');renderUsers()};
+  $('#rpOk').onclick=async()=>{const pw=$('#rpPw').value;if(!pwOk(pw))return toast(pwRule,'err');
+    if(await act('/api/users/'+encodeURIComponent(u.id)+'/password',{method:'POST',body:{password:pw}},'Password reset')){closeModal();renderUsers()}};
 }
 
 /* ---------- exports ---------- */
@@ -1101,8 +1000,7 @@ function exportPDF(c){
 /* ---------- boot ---------- */
 window.addEventListener('beforeunload',e=>{if(state.view.name==='edit'&&state.draft&&state.draft._dirty){e.preventDefault();e.returnValue=''}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){const o=$('#ovl');if(o&&!o.dataset.locked)closeModal()}});
-(function boot(){const s=getSession(),u=s&&state.users.find(x=>x.id===s.uid&&x.active!==false);
-  if(u&&Date.now()-s.at<12*3600000)signIn(u);else{setSession(null);showLogin()}})();
+showLogin();  // signs straight in when the browser still has a valid session cookie
 </script>
 </body>
 </html>
