@@ -8,6 +8,7 @@ Web app for LVC EcoPack staff to submit monthly mileage and expense claims and g
 - Privacy: you only see your own claims. An HOD or Approver can also open claims waiting for their approval and the ones they approved or returned. Nobody, not even the Administrator, sees other people's drafts.
 - Approval restricted to the HOD of the claim's department, or an Approver assigned to that department (never your own claim). Enforced on the server.
 - Mileage (km × rate), toll, parking and other expenses with live totals
+- Receipt attachments: photos (JPG, PNG, WEBP) or PDF, up to 5 MB each and 10 per row. Photos are shrunk in the browser before upload. Every toll, parking or other amount needs a receipt before the claim can be submitted. Files are stored in the database, and only people who can see the claim can open them.
 - Export a claim to **Excel** (with formulas) or **PDF**; export the claim list to Excel
 - Email drafts (opened in Outlook / your mail app). An approval email goes to the approver with the claimant in CC.
 - Demo accounts for trying it out (remove them before real use under Admin Configurations)
@@ -42,5 +43,5 @@ Then open http://127.0.0.1:8000.
 
 ## Notes
 - Sessions end after 30 minutes of inactivity, or 12 hours at most. Five wrong passwords lock that username for 5 minutes.
-- **Admin Configurations → Download backup** saves everything as JSON. **Restore** also imports backups made by the old browser-only version, and their passwords keep working.
+- **Admin Configurations → Download backup** saves users, settings and claims as JSON. Receipt files are not included; they stay in the database. **Restore** also imports backups made by the old browser-only version, and their passwords keep working.
 - The Excel and PDF exports load their libraries from a CDN.

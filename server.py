@@ -8,6 +8,7 @@ Run locally:   python server.py         -> http://127.0.0.1:8000
 On Railway:    gunicorn server:app (see railway.json)
 """
 import hashlib
+import io
 import json
 import os
 import re
@@ -40,7 +41,7 @@ DEFAULT_SETTINGS = {
 DEMO_PW = "Demo1234"
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 6 * 1024 * 1024  # receipts are at most 5 MB each
 
 # ---------------------------------------------------------------- database
 
@@ -89,6 +90,10 @@ SCHEMA = [
     "CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, created DOUBLE PRECISION NOT NULL, seen DOUBLE PRECISION NOT NULL)",
     "CREATE TABLE IF NOT EXISTS locks (k TEXT PRIMARY KEY, n INTEGER NOT NULL, until DOUBLE PRECISION NOT NULL)",
+    # receipt files; claim_id stays NULL until the claim that uses the file is saved
+    "CREATE TABLE IF NOT EXISTS attachments (id TEXT PRIMARY KEY, claim_id TEXT, owner_id TEXT NOT NULL, filename TEXT NOT NULL, "
+    "mime TEXT NOT NULL, size INTEGER NOT NULL, created TEXT NOT NULL, data " + ("BYTEA" if USE_PG else "BLOB") + " NOT NULL)",
+    "CREATE INDEX IF NOT EXISTS attachments_claim ON attachments (claim_id)",
 ]
 
 
@@ -357,9 +362,60 @@ def clean_items(items):
         for k in ("km", "toll", "parking", "other"):
             v = s(it.get(k), 20)
             row[k] = v if v == "" or num(v) or v in ("0", "0.0", "0.00") else ""
-        if any(row[k] not in ("", None) for k in ITEM_KEYS):
+        atts = it.get("attachments") if isinstance(it.get("attachments"), list) else []
+        row["attachments"] = [a for a in (s(x.get("id") if isinstance(x, dict) else x, 40) for x in atts) if a][:MAX_FILES_PER_ROW]
+        if any(row[k] not in ("", None) for k in ITEM_KEYS) or row["attachments"]:
             out.append(row)
     return out
+
+
+# ---------------------------------------------------------------- receipt attachments
+
+MAX_FILE_BYTES = 5 * 1024 * 1024
+MAX_FILES_PER_ROW = 10
+MAX_FILES_PER_CLAIM = 40
+EXPENSE_KEYS = ("toll", "parking", "other")
+
+
+def sniff(data):
+    """Identify the file from its first bytes - the name and browser-supplied type can't be trusted."""
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.startswith(b"%PDF-"):
+        return "application/pdf"
+    return None
+
+
+def prepare_attachments(c):
+    """Check the files the claim's rows refer to and fill in their details.
+    Returns (problem, commit); call commit() only once the claim itself is being saved."""
+    wanted = [a for it in c["items"] for a in it["attachments"]]
+    if len(wanted) > MAX_FILES_PER_CLAIM:
+        return f"A claim can have at most {MAX_FILES_PER_CLAIM} receipt files.", None
+    if len(set(wanted)) != len(wanted):
+        return "The same receipt file is attached to more than one row.", None
+    meta = {}
+    if wanted:
+        rows = q(f"SELECT id, claim_id, owner_id, filename, mime, size FROM attachments WHERE id IN ({', '.join(['?'] * len(wanted))})", tuple(wanted))
+        meta = {r["id"]: r for r in rows}
+    for aid in wanted:
+        r = meta.get(aid)
+        if not r or r["owner_id"] != c["ownerId"] or r["claim_id"] not in (None, c["id"]):
+            return "A receipt file is missing or no longer available - please attach it again.", None
+    for it in c["items"]:
+        it["attachments"] = [{"id": a, "name": meta[a]["filename"], "type": meta[a]["mime"], "size": meta[a]["size"]} for a in it["attachments"]]
+
+    def commit():
+        for aid in wanted:
+            q("UPDATE attachments SET claim_id = ? WHERE id = ?", (c["id"], aid))
+        for r in q("SELECT id FROM attachments WHERE claim_id = ?", (c["id"],)):
+            if r["id"] not in wanted:
+                q("DELETE FROM attachments WHERE id = ?", (r["id"],))
+    return None, commit
 
 
 def totals(c):
@@ -389,6 +445,9 @@ def submit_problem(c):
         return "Amounts cannot be negative."
     if totals(c) <= 0:
         return "The claim total must be more than RM 0.00."
+    missing = [str(n) for n, i in enumerate(c["items"], 1) if any(num(i[k]) > 0 for k in EXPENSE_KEYS) and not i.get("attachments")]
+    if missing:
+        return f"Attach a receipt for every toll, parking or other expense (row {', '.join(missing)})."
     return None
 
 
@@ -558,10 +617,12 @@ def create_claim():
     c = {"id": new_id(), "ownerId": u["id"], "claimant": u["name"], "email": u.get("email", ""),
          "department": u["department"], "status": "draft", "hod": None, "history": [], "createdAt": now_iso()}
     apply_fields(c, d.get("claim") or {})
-    if d.get("submit"):
+    problem, commit_files = prepare_attachments(c)
+    if not problem and d.get("submit"):
         problem = submit_problem(c)
-        if problem:
-            return err(400, problem)
+    if problem:
+        return err(400, problem)
+    commit_files()
     c["ref"] = next_ref(c["month"])
     add_history(c, "created", u["name"])
     if d.get("submit"):
@@ -581,10 +642,12 @@ def update_claim(cid):
     if not can_edit(u, c):
         return err(403, "This claim can no longer be edited.")
     apply_fields(c, d.get("claim") or {})
-    if d.get("submit"):
+    problem, commit_files = prepare_attachments(c)
+    if not problem and d.get("submit"):
         problem = submit_problem(c)
-        if problem:
-            return err(400, problem)
+    if problem:
+        return err(400, problem)
+    commit_files()
     add_history(c, "edited", u["name"])
     if d.get("submit"):
         c["status"] = "pending"
@@ -648,7 +711,57 @@ def delete_claim(cid):
     if not can_delete(u, c):
         return err(403, "You can only delete your own draft or returned claims.")
     q("DELETE FROM claims WHERE id = ?", (cid,))
+    q("DELETE FROM attachments WHERE claim_id = ?", (cid,))
     return jsonify(state_for(u))
+
+
+@app.post("/api/attachments")
+@login_required
+def upload_attachment():
+    u = current_user()
+    f = request.files.get("file")
+    if not f:
+        return err(400, "No file received.")
+    data = f.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        return err(413, "That file is too large - the limit is 5 MB.")
+    mime = sniff(data)
+    if not mime:
+        return err(400, "Only photos (JPG, PNG, WEBP) or PDF files can be attached.")
+    name = re.sub(r'[\\/\r\n\t"<>]', "_", s(f.filename, 120)) or "receipt"
+    # uploads that were never saved into a claim are removed after a day
+    cutoff = datetime.fromtimestamp(time.time() - 86400, timezone.utc).isoformat(timespec="seconds")
+    q("DELETE FROM attachments WHERE claim_id IS NULL AND created < ?", (cutoff,))
+    aid = new_id()
+    q("INSERT INTO attachments (id, claim_id, owner_id, filename, mime, size, created, data) VALUES (?, NULL, ?, ?, ?, ?, ?, ?)",
+      (aid, u["id"], name, mime, len(data), now_iso(), data))
+    return jsonify(ok=True, attachment={"id": aid, "name": name, "type": mime, "size": len(data)})
+
+
+@app.get("/api/attachments/<aid>")
+@login_required
+def get_attachment(aid):
+    u = current_user()
+    r = q("SELECT claim_id, owner_id, filename, mime, data FROM attachments WHERE id = ?", (aid,), one=True)
+    if r and r["claim_id"]:
+        c = get_claim(r["claim_id"])
+        allowed = bool(c) and can_see(u, c)
+    else:
+        allowed = bool(r) and r["owner_id"] == u["id"]
+    if not allowed:
+        return err(404, "File not found.")
+    resp = send_file(io.BytesIO(bytes(r["data"])), mimetype=r["mime"], download_name=r["filename"],
+                     as_attachment=request.args.get("download") == "1", max_age=0)
+    if r["mime"].startswith("image/"):
+        # images can't run scripts anyway; a sandboxed PDF wouldn't open in Chrome's viewer, and only real
+        # JPG/PNG/WEBP/PDF files (checked by their bytes) are ever stored
+        resp.headers["Content-Security-Policy"] = "sandbox"
+    return resp
+
+
+@app.errorhandler(413)
+def too_large(_e):
+    return err(413, "That file is too large - the limit is 5 MB.")
 
 
 # ---------------------------------------------------------------- routes: users & settings (admin)
@@ -804,6 +917,10 @@ def restore():
         c.setdefault("status", "draft")
         c.setdefault("history", [])
         save_claim(c)
+    kept = {c["id"] for c in claims}  # backups hold claims only; drop files of claims that no longer exist
+    for r in q("SELECT DISTINCT claim_id FROM attachments WHERE claim_id IS NOT NULL"):
+        if r["claim_id"] not in kept:
+            q("DELETE FROM attachments WHERE claim_id = ?", (r["claim_id"],))
     if not keep_users:
         q("DELETE FROM users")
         q("DELETE FROM sessions")
@@ -909,6 +1026,7 @@ def end_demo():
     for c in load_claims():
         if c.get("demo"):
             q("DELETE FROM claims WHERE id = ?", (c["id"],))
+            q("DELETE FROM attachments WHERE claim_id = ?", (c["id"],))
     q("DELETE FROM locks")
     st = get_settings()
     st["demo"] = False

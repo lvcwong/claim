@@ -162,6 +162,16 @@ table.items{width:100%;border-collapse:collapse;min-width:1100px}
 .toast{background:var(--g900);color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);font-size:13px;max-width:340px}
 .toast.err{background:var(--red)}
 [hidden]{display:none!important}
+/* receipt attachments */
+.att{display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-width:150px}
+.att-chip{display:inline-flex;align-items:center;gap:4px;max-width:150px;background:var(--g50);border:1px solid var(--g200);border-radius:6px;padding:2px 4px 2px 7px;font-size:12px;color:var(--g900);text-decoration:none}
+.att-chip:hover{background:var(--g100)}
+.att-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.att-chip button{border:0;background:transparent;color:var(--muted);cursor:pointer;padding:0 3px;font-size:14px;line-height:1}
+.att-chip button:hover{color:var(--red)}
+.att-add{border:1px dashed var(--g300);background:#fff;color:var(--g700);border-radius:6px;padding:3px 8px;font-size:12px;cursor:pointer;white-space:nowrap}
+.att-add:hover{background:var(--g50)}
+.att-add.need{border-color:var(--amber);color:var(--amber);background:var(--amber-bg);font-weight:600}
 /* login */
 .login{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);background:#fff}
 .login-art{background:linear-gradient(150deg,#eaf7ee 0%,#cdebd6 55%,#a9dbb8 100%);padding:44px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}
@@ -239,6 +249,7 @@ table.items{width:100%;border-collapse:collapse;min-width:1100px}
   </div>
 </div>
 <div id="toasts"></div>
+<input type="file" id="attFile" accept="image/*,application/pdf" multiple hidden>
 
 <script>
 /* ---------- helpers ---------- */
@@ -438,8 +449,39 @@ async function endDemo(){closeModal();
 
 function totals(c){let km=0,toll=0,park=0,other=0;(c.items||[]).forEach(i=>{km+=num(i.km);toll+=num(i.toll);park+=num(i.parking);other+=num(i.other)});
   const mileage=r2(km*num(c.rate));return{km:r2(km),mileage,toll:r2(toll),park:r2(park),other:r2(other),total:r2(mileage+toll+park+other)}}
-const isBlankItem=i=>!['date','from','to','km','toll','parking','other','desc','receipt'].some(k=>String(i[k]??'').trim()!=='');
-const blankItem=(date)=>({id:uid(),date:date||'',from:'',to:'',km:'',toll:'',parking:'',other:'',desc:'',receipt:''});
+const isBlankItem=i=>!['date','from','to','km','toll','parking','other','desc','receipt'].some(k=>String(i[k]??'').trim()!=='')&&!(i.attachments&&i.attachments.length);
+const blankItem=(date)=>({id:uid(),date:date||'',from:'',to:'',km:'',toll:'',parking:'',other:'',desc:'',receipt:'',attachments:[]});
+/* a row with a toll, parking or other amount needs at least one receipt file (the server enforces this on submit) */
+const needsReceipt=i=>['toll','parking','other'].some(k=>num(i[k])>0)&&!(i.attachments&&i.attachments.length);
+const attUrl=(a,download)=>'/api/attachments/'+encodeURIComponent(a.id)+(download?'?download=1':'');
+const fmtSize=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB';
+function attHTML(it,editable){
+  const chips=(it.attachments||[]).map(a=>`<a class="att-chip" href="${attUrl(a)}" target="_blank" rel="noopener" title="${esc(a.name)} · ${fmtSize(a.size)}">${a.type==='application/pdf'?'📄':'🖼️'}<span>${esc(a.name)}</span>${editable?`<button type="button" data-attrm="${esc(a.id)}" title="Remove">×</button>`:''}</a>`).join('');
+  if(!editable)return chips?`<div class="att">${chips}</div>`:'';
+  const need=needsReceipt(it);
+  return `<div class="att">${chips}<button type="button" class="att-add${need?' need':''}" data-att title="Attach receipt photo or PDF">📎 ${need?'Receipt needed':'Attach'}</button></div>`;
+}
+/* shrink photos before upload so the database stays small; PDFs are sent as they are */
+async function shrinkImage(file){
+  if(!/^image\//.test(file.type)||file.type==='image/gif')return file;
+  try{
+    const bmp=await createImageBitmap(file),max=1600,scale=Math.min(1,max/Math.max(bmp.width,bmp.height));
+    const cv=document.createElement('canvas');cv.width=Math.round(bmp.width*scale);cv.height=Math.round(bmp.height*scale);
+    cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
+    const blob=await new Promise(r=>cv.toBlob(r,'image/jpeg',0.82));
+    return blob&&blob.size<file.size?new File([blob],file.name.replace(/\.[^.]+$/,'')+'.jpg',{type:'image/jpeg'}):file;
+  }catch(e){return file}
+}
+async function uploadReceipt(file){
+  const fd=new FormData();fd.append('file',await shrinkImage(file));
+  let res;
+  try{res=await fetch('/api/attachments',{method:'POST',credentials:'same-origin',headers:{'X-Requested-With':'EcoClaim'},body:fd})}
+  catch(e){throw new Error("Can't reach the EcoClaim server.")}
+  let j={};try{j=await res.json()}catch(_){}
+  if(res.status===401){sessionEnded(j.error);throw new Error('Signed out')}
+  if(!res.ok||!j.ok)throw new Error(j.error||('Upload failed ('+res.status+')'));
+  return j.attachment;
+}
 const getClaim=id=>state.claims.find(c=>c.id===id);
 const canEdit=c=>ownsClaim(c)&&(c.status==='draft'||c.status==='rejected');
 const canDelete=c=>ownsClaim(c)&&(c.status==='draft'||c.status==='rejected');
@@ -590,8 +632,8 @@ function renderEditor(){
     </div></div></div>
     <div class="card"><div class="card-h"><h3>Mileage &amp; Expenses</h3><span class="sub">Leave Date blank to continue the trip from the row above.</span></div>
       <div class="tbl-wrap"><table class="items"><thead>
-        <tr><th class="grp" colspan="5">Mileage Claim</th><th class="grp" colspan="3">Receipts Required (RM)</th><th class="grp" colspan="3">Description</th></tr>
-        <tr><th style="width:130px">Date</th><th>From Location</th><th>To Location</th><th style="width:90px">Mileage (KM)</th><th style="width:88px;text-align:right">Mileage RM</th><th style="width:88px">Toll</th><th style="width:88px">Parking</th><th style="width:100px">Other Expenses</th><th style="min-width:220px">Description of Cost / Purpose of Journey</th><th style="width:120px">Receipt No.</th><th style="width:36px"></th></tr>
+        <tr><th class="grp" colspan="5">Mileage Claim</th><th class="grp" colspan="3">Receipts Required (RM)</th><th class="grp" colspan="4">Description &amp; Receipts</th></tr>
+        <tr><th style="width:130px">Date</th><th>From Location</th><th>To Location</th><th style="width:90px">Mileage (KM)</th><th style="width:88px;text-align:right">Mileage RM</th><th style="width:88px">Toll</th><th style="width:88px">Parking</th><th style="width:100px">Other Expenses</th><th style="min-width:220px">Description of Cost / Purpose of Journey</th><th style="width:120px">Receipt No.</th><th style="min-width:160px">Receipt files</th><th style="width:36px"></th></tr>
       </thead><tbody id="rows"></tbody><tfoot id="foot"></tfoot></table></div>
       <div class="row-tools"><button class="btn sm" id="addTrip">${ICON.car}Add mileage trip</button><button class="btn sm" id="addExp">${ICON.receipt}Add expense</button></div>
     </div>
@@ -622,16 +664,39 @@ function renderRows(focusLast,focusKey){
     <td>${inp(it,'km','number','num','0')}</td><td class="calc" data-calc>${num(it.km)?fmt2(num(it.km)*num(d.rate)):''}</td>
     <td>${inp(it,'toll','number','num','0.00')}</td><td>${inp(it,'parking','number','num','0.00')}</td><td>${inp(it,'other','number','num','0.00')}</td>
     <td>${inp(it,'desc','','','Purpose / cost description')}</td><td>${inp(it,'receipt','','','Ref no.')}</td>
-    <td><button class="icon-btn del" data-rm title="Remove row">${ICON.x}</button></td></tr>`).join('')||`<tr><td colspan="11" class="empty">No rows yet — add a mileage trip or expense.</td></tr>`;
-  tb.querySelectorAll('input').forEach(el=>el.addEventListener('input',()=>{const i=+el.closest('tr').dataset.i,k=el.dataset.k;d.items[i][k]=el.value;d._dirty=true;
-    if(k==='km')el.closest('tr').querySelector('[data-calc]').textContent=num(el.value)?fmt2(num(el.value)*num(d.rate)):'';
+    <td data-attcell>${attHTML(it,true)}</td>
+    <td><button class="icon-btn del" data-rm title="Remove row">${ICON.x}</button></td></tr>`).join('')||`<tr><td colspan="12" class="empty">No rows yet — add a mileage trip or expense.</td></tr>`;
+  tb.querySelectorAll('input').forEach(el=>el.addEventListener('input',()=>{const tr=el.closest('tr'),i=+tr.dataset.i,k=el.dataset.k;d.items[i][k]=el.value;d._dirty=true;
+    if(k==='km')tr.querySelector('[data-calc]').textContent=num(el.value)?fmt2(num(el.value)*num(d.rate)):'';
+    if(['toll','parking','other'].includes(k))refreshAttCell(tr);
     if(['km','toll','parking','other'].includes(k))renderTotals()}));
   tb.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{d.items.splice(+b.closest('tr').dataset.i,1);d._dirty=true;renderRows();renderTotals()});
+  tb.querySelectorAll('tr[data-i]').forEach(bindAttCell);
   if(focusLast){const last=tb.querySelector('tr:last-child input[data-k="'+(focusKey||'from')+'"]');if(last)last.focus()}
+}
+function refreshAttCell(tr){const it=state.draft.items[+tr.dataset.i];tr.querySelector('[data-attcell]').innerHTML=attHTML(it,true);bindAttCell(tr)}
+function bindAttCell(tr){
+  const it=state.draft.items[+tr.dataset.i];
+  tr.querySelector('[data-att]').onclick=()=>{
+    if((it.attachments||[]).length>=10)return toast('A row can have at most 10 receipt files','err');
+    const picker=$('#attFile');picker.value='';
+    picker.onchange=async()=>{
+      const files=[...picker.files].slice(0,10-(it.attachments||[]).length);if(!files.length)return;
+      const btn=tr.querySelector('[data-att]');btn.disabled=true;btn.textContent='Uploading…';
+      for(const f of files){
+        try{const a=await uploadReceipt(f);(it.attachments=it.attachments||[]).push(a);state.draft._dirty=true}
+        catch(e){toast(`${f.name}: ${e.message}`,'err');if(!state.user)return}
+      }
+      if(tr.isConnected)refreshAttCell(tr);
+    };
+    picker.click();
+  };
+  tr.querySelectorAll('[data-attrm]').forEach(b=>b.onclick=e=>{e.preventDefault();e.stopPropagation();
+    it.attachments=(it.attachments||[]).filter(a=>a.id!==b.dataset.attrm);state.draft._dirty=true;refreshAttCell(tr)});
 }
 function updateCalcs(){const d=state.draft;document.querySelectorAll('#rows tr[data-i]').forEach(tr=>{const it=d.items[+tr.dataset.i];tr.querySelector('[data-calc]').textContent=num(it.km)?fmt2(num(it.km)*num(d.rate)):''})}
 function renderTotals(){const d=state.draft,t=totals(d);
-  $('#foot').innerHTML=`<tr><td colspan="3" style="text-align:right">Totals</td><td class="r" style="text-align:right">${fmtKm(t.km)}</td><td style="text-align:right">${fmt2(t.mileage)}</td><td style="text-align:right">${fmt2(t.toll)}</td><td style="text-align:right">${fmt2(t.park)}</td><td style="text-align:right">${fmt2(t.other)}</td><td colspan="3" style="text-align:right;color:var(--g700)">Total Claim: ${rm(t.total)}</td></tr>`;
+  $('#foot').innerHTML=`<tr><td colspan="3" style="text-align:right">Totals</td><td class="r" style="text-align:right">${fmtKm(t.km)}</td><td style="text-align:right">${fmt2(t.mileage)}</td><td style="text-align:right">${fmt2(t.toll)}</td><td style="text-align:right">${fmt2(t.park)}</td><td style="text-align:right">${fmt2(t.other)}</td><td colspan="4" style="text-align:right;color:var(--g700)">Total Claim: ${rm(t.total)}</td></tr>`;
   $('#sumBox').innerHTML=summaryHTML(d,t)}
 function summaryHTML(c,t){return `
   <div class="sum-row"><span>Total mileage</span><b>${fmtKm(t.km)} km</b></div>
@@ -652,6 +717,7 @@ async function saveDraft(submit){
     else if(!d.items[0].date)msg='The first row needs a date.';
     else if(totals(d).total<=0)msg='The claim total must be more than RM 0.00.';
     else if(d.items.some(i=>[i.km,i.toll,i.parking,i.other].some(x=>num(x)<0)))msg='Amounts cannot be negative.';
+    else if(d.items.some(needsReceipt))msg=`Attach a receipt for every toll, parking or other expense (row ${d.items.map((i,n)=>needsReceipt(i)?n+1:0).filter(Boolean).join(', ')}).`;
     if(msg){if(!d.items.length)d.items.push(blankItem());renderRows();renderTotals();toast(msg,'err');return}
   }
   const claim={claimName:d.claimName,month:d.month,purpose:d.purpose,dateClaimed:d.dateClaimed,periodFrom:d.periodFrom,periodTo:d.periodTo,rate:d.rate,items:d.items};
@@ -672,7 +738,8 @@ function renderView(c){
   const t=totals(c),S=state.settings;
   let prev='';const rows=c.items.map(i=>{const showD=i.date&&i.date!==prev;if(i.date)prev=i.date;return `<tr>
     <td>${showD?dmy(i.date):''}</td><td>${esc(i.from)}</td><td>${esc(i.to)}</td><td class="r">${num(i.km)?fmtKm(i.km):''}</td><td class="r">${num(i.km)?fmt2(num(i.km)*num(c.rate)):''}</td>
-    <td class="r">${num(i.toll)?fmt2(i.toll):''}</td><td class="r">${num(i.parking)?fmt2(i.parking):''}</td><td class="r">${num(i.other)?fmt2(i.other):''}</td><td>${esc(i.desc)}</td><td class="sub">${esc(i.receipt)}</td></tr>`}).join('');
+    <td class="r">${num(i.toll)?fmt2(i.toll):''}</td><td class="r">${num(i.parking)?fmt2(i.parking):''}</td><td class="r">${num(i.other)?fmt2(i.other):''}</td><td>${esc(i.desc)}</td><td class="sub">${esc(i.receipt)}</td><td>${attHTML(i,false)||(needsReceipt(i)?'<span class="chip hod">No receipt</span>':'')}</td></tr>`}).join('');
+  const nFiles=c.items.reduce((n,i)=>n+(i.attachments||[]).length,0);
   const hodPanel=canApprove(c)?`
     <div class="card hod-box no-print"><div class="card-h"><h3>${isApprover()?'Approver':'HOD'} Decision</h3><span class="sub">Approval is final and locks the claim.</span></div><div class="card-b"><div class="grid">
       <div class="f c2"><label>${isApprover()?'Approver':'Head of Department'} (${esc(c.department)})</label><input class="input" value="${esc(me().name)}" disabled></div>
@@ -705,11 +772,11 @@ function renderView(c){
       <div><span>Email</span><b>${esc(c.email||(ownerOf(c)||{}).email||'—')}</b></div>
       <div class="wide"><span>Purpose of Claim</span><b style="font-weight:500">${esc(c.purpose)}</b></div>
     </div></div></div>
-    <div class="card"><div class="card-h"><h3>Mileage &amp; Expenses</h3><span class="sub">${c.items.length} line${c.items.length===1?'':'s'}</span></div>
+    <div class="card"><div class="card-h"><h3>Mileage &amp; Expenses</h3><span class="sub">${c.items.length} line${c.items.length===1?'':'s'} · 📎 ${nFiles} receipt file${nFiles===1?'':'s'}</span></div>
       <div class="tbl-wrap"><table class="items ro"><thead>
-        <tr><th class="grp" colspan="5">Mileage Claim</th><th class="grp" colspan="3">Receipts Required (RM)</th><th class="grp" colspan="2">Description</th></tr>
-        <tr><th>Date</th><th>From Location</th><th>To Location</th><th style="text-align:right">KM</th><th style="text-align:right">Mileage RM</th><th style="text-align:right">Toll</th><th style="text-align:right">Parking</th><th style="text-align:right">Other</th><th>Description of Cost / Purpose of Journey</th><th>Receipt No.</th></tr>
-      </thead><tbody>${rows}</tbody><tfoot><tr><td colspan="3" style="text-align:right">Totals</td><td style="text-align:right">${fmtKm(t.km)}</td><td style="text-align:right">${fmt2(t.mileage)}</td><td style="text-align:right">${fmt2(t.toll)}</td><td style="text-align:right">${fmt2(t.park)}</td><td style="text-align:right">${fmt2(t.other)}</td><td colspan="2" style="text-align:right;color:var(--g700)">Total Claim: ${rm(t.total)}</td></tr></tfoot></table></div></div>
+        <tr><th class="grp" colspan="5">Mileage Claim</th><th class="grp" colspan="3">Receipts Required (RM)</th><th class="grp" colspan="3">Description &amp; Receipts</th></tr>
+        <tr><th>Date</th><th>From Location</th><th>To Location</th><th style="text-align:right">KM</th><th style="text-align:right">Mileage RM</th><th style="text-align:right">Toll</th><th style="text-align:right">Parking</th><th style="text-align:right">Other</th><th>Description of Cost / Purpose of Journey</th><th>Receipt No.</th><th>Receipt files</th></tr>
+      </thead><tbody>${rows}</tbody><tfoot><tr><td colspan="3" style="text-align:right">Totals</td><td style="text-align:right">${fmtKm(t.km)}</td><td style="text-align:right">${fmt2(t.mileage)}</td><td style="text-align:right">${fmt2(t.toll)}</td><td style="text-align:right">${fmt2(t.park)}</td><td style="text-align:right">${fmt2(t.other)}</td><td colspan="3" style="text-align:right;color:var(--g700)">Total Claim: ${rm(t.total)}</td></tr></tfoot></table></div></div>
   </div>
   <div class="sum">
     <div class="card"><div class="card-h"><h3>Claim Summary</h3></div><div class="card-b">${summaryHTML(c,t)}</div></div>
@@ -908,7 +975,7 @@ async function exportExcel(c){
   const hr=ws.getRow(12);hdr.forEach((h,i)=>{const cell=hr.getCell(i+1);cell.value=h;cell.font={bold:true,color:{argb:'FFFFFFFF'}};cell.fill=xFill(XG);cell.border=xBorder;cell.alignment={vertical:'middle',horizontal:i>=3&&i<=6?'right':'left',wrapText:true}});hr.height=20;
   const first=13;let last=first-1;
   (c.items.length?c.items:[blankItem()]).forEach((it,idx)=>{last=first+idx;const row=ws.getRow(last);
-    row.values=[toXDate(it.date),it.from||null,it.to||null,num(it.km)||null,num(it.toll)||null,num(it.parking)||null,num(it.other)||null,it.desc||null,it.receipt||null];
+    row.values=[toXDate(it.date),it.from||null,it.to||null,num(it.km)||null,num(it.toll)||null,num(it.parking)||null,num(it.other)||null,it.desc||null,[it.receipt,...(it.attachments||[]).map(a=>a.name)].filter(Boolean).join(", ")||null];
     row.getCell(1).numFmt='dd/mm/yyyy';row.getCell(4).numFmt='#,##0.0#';[5,6,7].forEach(k=>row.getCell(k).numFmt='#,##0.00');row.getCell(8).alignment={wrapText:true,vertical:'top'};
     for(let k=1;k<=9;k++){row.getCell(k).border=xBorder;if(idx%2)row.getCell(k).fill=xFill(XGXL)}});
   r=last+2;
@@ -955,7 +1022,7 @@ async function exportListExcel(list){
   const buf=await wb.xlsx.writeBuffer();download(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`Claims summary ${todayISO()}.xlsx`);toast('Excel summary downloaded');
 }
 
-function exportPDF(c){
+async function exportPDF(c){
   if(!window.jspdf||!window.jspdf.jsPDF||!window.jspdf.jsPDF.API.autoTable)return toast('PDF export needs an internet connection to load – please reconnect and retry','err');
   const S=state.settings,t=totals(c),{jsPDF}=window.jspdf,doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
   const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight(),M=12,G=[47,158,91],GD=[20,64,42],GL=[227,244,232];
@@ -972,7 +1039,7 @@ function exportPDF(c){
     columnStyles:{0:{fontStyle:'bold',textColor:GD,cellWidth:34},1:{cellWidth:100},2:{fontStyle:'bold',textColor:GD,cellWidth:34},3:{}},
     body:[["Claim Name:",clean(c.claimName),"Claim Ref:",c.ref],["Claimant's Name:",clean(c.claimant),"Department:",clean(c.department)],["Month of Claim:",monthLabel(c.month),"Expenses Period:",`${dmy(c.periodFrom)} - ${dmy(c.periodTo)}`],["Date Claimed:",dmy(c.dateClaimed),"Rate (RM/km):",fmt2(c.rate)],["Email:",c.email||(ownerOf(c)||{}).email||"","",""],[{content:'Purpose of Claim:',styles:{fontStyle:'bold',textColor:GD}},{content:clean(c.purpose),colSpan:3}]]});
   let prev='';const body=c.items.map(i=>{const showD=i.date&&i.date!==prev;if(i.date)prev=i.date;
-    return[showD?dmy(i.date):'',clean(i.from),clean(i.to),num(i.km)?fmtKm(i.km):'',num(i.km)?fmt2(num(i.km)*num(c.rate)):'',num(i.toll)?fmt2(i.toll):'',num(i.parking)?fmt2(i.parking):'',num(i.other)?fmt2(i.other):'',clean(i.desc)+(i.receipt?`\nRef: ${clean(i.receipt)}`:'')]});
+    return[showD?dmy(i.date):'',clean(i.from),clean(i.to),num(i.km)?fmtKm(i.km):'',num(i.km)?fmt2(num(i.km)*num(c.rate)):'',num(i.toll)?fmt2(i.toll):'',num(i.parking)?fmt2(i.parking):'',num(i.other)?fmt2(i.other):'',clean(i.desc)+(i.receipt?`\nRef: ${clean(i.receipt)}`:'')+((i.attachments||[]).length?`\nReceipts: ${i.attachments.map(a=>clean(a.name)).join(', ')}`:'')]});
   doc.autoTable({startY:doc.lastAutoTable.finalY+4,margin:{left:M,right:M,bottom:16},theme:'grid',
     head:[[{content:'Mileage Claim',colSpan:5,styles:{halign:'center'}},{content:'Receipts Required (RM)',colSpan:3,styles:{halign:'center'}},{content:'Description',styles:{halign:'center'}}],
           ['Date','From Location','To Location','KM','Mileage RM','Toll','Parking','Other','Description of Cost / Purpose of Journey']],
@@ -994,6 +1061,24 @@ function exportPDF(c){
   const dec=c.hod&&(c.status==='approved'||c.status==='rejected');
   sig(M+82,dec&&c.hod.role==='approver'?'Approved by (Approver) :':'Approved by (HOD) :',dec?c.hod.name:'',dec?dmy(c.hod.date):'',dec&&c.hod.remarks?`Remarks: ${clean(c.hod.remarks)}`:'');
   if(c.status==='approved'&&dec){doc.setTextColor(...G);doc.setDrawColor(...G);doc.setLineWidth(.7);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.roundedRect(M+86,y+8,36,9,1.5,1.5);doc.text('APPROVED',M+104,y+14.2,{align:'center'})}
+  // receipts appendix: one page per photo; PDF receipts are listed (open them in EcoClaim)
+  const files=c.items.flatMap((i,n)=>(i.attachments||[]).map(a=>({a,row:n+1,desc:i.desc})));
+  if(files.length){
+    toast('Adding receipts to the PDF…');
+    for(const {a,row,desc} of files){
+      doc.addPage();doc.setFillColor(...GL);doc.rect(0,0,W,14,'F');doc.setTextColor(...GD);doc.setFont('helvetica','bold');doc.setFontSize(10);
+      doc.text(clean(`Receipt - row ${row}${desc?': '+desc:''}`).slice(0,110),M,9);doc.setFont('helvetica','normal');doc.setFontSize(8);doc.text(clean(a.name),W-M,9,{align:'right'});
+      if(a.type==='application/pdf'){doc.setTextColor(90,105,96);doc.setFontSize(10);doc.text(`PDF receipt "${clean(a.name)}" - open it from the claim in EcoClaim.`,M,30);continue}
+      try{
+        const blob=await (await fetch(attUrl(a),{credentials:'same-origin'})).blob();
+        const url=await new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=no;r.readAsDataURL(blob)});
+        const img=await new Promise((ok,no)=>{const im=new Image();im.onload=()=>ok(im);im.onerror=no;im.src=url});
+        const boxW=W-2*M,boxH=H-14-16-6,sc=Math.min(boxW/img.width,boxH/img.height);
+        const w=img.width*sc,h=img.height*sc;
+        doc.addImage(url,a.type==='image/png'?'PNG':a.type==='image/webp'?'WEBP':'JPEG',M+(boxW-w)/2,18,w,h);
+      }catch(e){doc.setTextColor(192,57,43);doc.setFontSize(10);doc.text(`Could not load "${clean(a.name)}".`,M,30)}
+    }
+  }
   const pc=doc.internal.getNumberOfPages();for(let p=1;p<=pc;p++){doc.setPage(p);doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(130,140,134);
     doc.text(`${clean(S.company)} · ${c.ref} · generated ${dmy(todayISO())}`.replace('·','-').replace('·','-'),M,H-7);doc.text(`Page ${p} of ${pc}`,W-M,H-7,{align:'right'})}
   doc.save(fileBase(c)+'.pdf');toast('PDF downloaded');
