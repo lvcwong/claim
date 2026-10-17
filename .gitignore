@@ -1,0 +1,3 @@
+# holds the SMTP password and relay key - never commit
+mail-relay/config.json
+__pycache__/

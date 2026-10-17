@@ -1,0 +1,15 @@
+{
+  "smtp_host": "smtp.gmail.com",
+  "smtp_port": 587,
+  "security": "starttls",
+  "smtp_user": "claims@lvc-ecopack.com",
+  "smtp_password": "PASTE-GOOGLE-APP-PASSWORD-HERE",
+  "from_email": "claims@lvc-ecopack.com",
+  "from_name": "EcoClaim - LVC EcoPack",
+  "relay_key": "CHANGE-ME-to-a-long-random-string",
+  "listen_host": "127.0.0.1",
+  "listen_port": 8025,
+  "allowed_domains": ["lvc-ecopack.com"],
+  "allowed_origins": ["null", "http://localhost:8765", "https://lvcwong.github.io"],
+  "max_per_minute": 20
+}
