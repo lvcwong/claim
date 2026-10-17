@@ -1,0 +1,1038 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EcoClaim – Mileage &amp; Expenses</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{
+  --g25:#f7fcf8; --g50:#f0f9f2; --g100:#e3f4e8; --g200:#c6e8d0; --g300:#9fd6b0; --g500:#3fae6a;
+  --g600:#2f9e5b; --g700:#227a46; --g900:#14402a;
+  --ink:#1d2a22; --muted:#6b7a71; --line:#e3ece6; --bg:#f4f9f5; --white:#fff;
+  --amber:#b7791f; --amber-bg:#fdf3e1; --red:#c0392b; --red-bg:#fdecea; --violet:#6d4fc2; --violet-bg:#f1edfb;
+  --radius:12px; --shadow:0 1px 2px rgba(20,64,42,.05),0 4px 16px rgba(20,64,42,.05);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+.app{display:grid;grid-template-columns:76px 1fr;min-height:100vh}
+/* sidebar */
+.side{background:var(--white);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;position:sticky;top:0;height:100vh}
+.logo{width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,var(--g500),var(--g700));display:grid;place-items:center;margin-bottom:18px;box-shadow:0 4px 12px rgba(47,158,91,.3)}
+.nav-btn{width:48px;height:48px;border-radius:12px;border:0;background:transparent;display:grid;place-items:center;cursor:pointer;color:var(--muted);position:relative}
+.nav-btn:hover{background:var(--g50);color:var(--g700)}
+.nav-btn.active{background:var(--g100);color:var(--g700)}
+.nav-btn.active::after{content:"";position:absolute;right:-14px;top:10px;bottom:10px;width:4px;border-radius:4px 0 0 4px;background:var(--g600)}
+.nav-btn .tip{position:absolute;left:58px;background:var(--g900);color:#fff;font-size:12px;padding:4px 8px;border-radius:6px;white-space:nowrap;opacity:0;pointer-events:none;transition:.15s;z-index:20}
+.nav-btn:hover .tip{opacity:1}
+/* header */
+.main{min-width:0;display:flex;flex-direction:column}
+.top{background:linear-gradient(100deg,#e6f6ea 0%,#d4efdc 55%,#c9ead3 100%);border-bottom:1px solid var(--g200);padding:14px 28px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px}
+.brand{font-weight:700;color:var(--g900);font-size:16px;letter-spacing:-.01em}
+.brand small{display:block;font-weight:500;color:var(--g700);font-size:12px}
+.clock{text-align:center;color:var(--g900)}
+.clock .d{font-size:12px;color:var(--g700)}
+.clock .t{font-size:20px;font-weight:600;letter-spacing:.02em}
+.who{justify-self:end;display:flex;align-items:center;gap:10px}
+.who small{display:block;font-size:11px;color:var(--g700);text-align:right}
+.seg{display:inline-flex;background:rgba(255,255,255,.75);border:1px solid var(--g200);border-radius:10px;padding:3px}
+.seg button{border:0;background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer;font-weight:600;font-size:13px;color:var(--g700)}
+.seg button.on{background:var(--g600);color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+/* tabs */
+.bar{background:var(--white);border-bottom:1px solid var(--line);padding:12px 28px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex-wrap:wrap}
+.tabs button{border:0;border-right:1px solid var(--line);background:#fff;padding:8px 16px;cursor:pointer;font-weight:500;color:#33443a}
+.tabs button:last-child{border-right:0}
+.tabs button:hover{background:var(--g50)}
+.tabs button.on{background:var(--g600);color:#fff}
+.tabs .count{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:9px;background:var(--amber-bg);color:var(--amber);font-size:11px;font-weight:700;line-height:18px}
+.tabs button.on .count{background:rgba(255,255,255,.25);color:#fff}
+.spacer{flex:1}
+.content{padding:24px 28px 60px;max-width:1280px;width:100%}
+/* generic */
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:#fff;padding:8px 14px;border-radius:9px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--g300);background:var(--g25)}
+.btn.primary{background:var(--g600);border-color:var(--g600);color:#fff}
+.btn.primary:hover{background:var(--g700)}
+.btn.soft{background:var(--g100);border-color:var(--g200);color:var(--g900)}
+.btn.danger{color:var(--red);border-color:#f2c9c4}
+.btn.danger:hover{background:var(--red-bg)}
+.btn.sm{padding:5px 10px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.card{background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:18px}
+.card-h{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.card-h h2,.card-h h3{margin:0;font-size:16px;font-weight:600}
+.card-b{padding:18px}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:20px;white-space:nowrap}
+.badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.b-draft{background:#eef1ef;color:#58665d}
+.b-pending{background:var(--amber-bg);color:var(--amber)}
+.b-approved{background:var(--g100);color:var(--g700)}
+.b-rejected{background:var(--red-bg);color:var(--red)}
+.chip{display:inline-block;font-size:11.5px;font-weight:500;padding:2px 8px;border-radius:6px;background:var(--violet-bg);color:var(--violet)}
+.chip.g{background:var(--g100);color:var(--g700)}
+.muted{color:var(--muted)}
+.sub{font-size:12px;color:var(--muted)}
+/* kpis */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow)}
+.kpi .l{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.kpi .v{font-size:22px;font-weight:700;margin-top:4px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:12px;color:var(--muted)}
+.kpi.accent{background:linear-gradient(135deg,#f3fbf5,#e3f4e8);border-color:var(--g200)}
+/* filters */
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;align-items:center}
+.input,.filters input,.filters select{border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 12px;outline:none}
+.input:focus,.filters input:focus,.filters select:focus{border-color:var(--g500);box-shadow:0 0 0 3px rgba(63,174,106,.15)}
+.search{min-width:240px;flex:1;max-width:360px}
+/* tables */
+.tbl-wrap{overflow-x:auto}
+table.tbl{width:100%;border-collapse:collapse}
+.tbl th{background:var(--g25);text-align:left;font-size:12px;font-weight:500;color:var(--muted);padding:10px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tbody tr:hover td{background:var(--g25)}
+.tbl .r{text-align:right;font-variant-numeric:tabular-nums}
+.nm{font-weight:600}
+.acts{display:flex;gap:4px;justify-content:flex-end}
+.icon-btn{width:32px;height:32px;border:0;background:transparent;border-radius:8px;display:grid;place-items:center;cursor:pointer;color:#55645b}
+.icon-btn:hover{background:var(--g100);color:var(--g700)}
+.icon-btn.del:hover{background:var(--red-bg);color:var(--red)}
+.empty{padding:36px 18px;text-align:center;color:var(--muted)}
+.pager{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-top:1px solid var(--line);gap:8px}
+.pages{display:flex;gap:4px}
+.pages button{min-width:30px;height:30px;border:0;background:transparent;border-radius:7px;cursor:pointer;color:#55645b}
+.pages button.on{background:var(--g100);color:var(--g700);font-weight:600}
+/* form */
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 16px}
+.f{display:flex;flex-direction:column;gap:5px;min-width:0}
+.f.c2{grid-column:span 2}.f.c4{grid-column:1/-1}
+.f label{font-size:12px;font-weight:600;color:#3d4d43}
+.f label .req{color:var(--red)}
+.f .input{width:100%}
+textarea.input{resize:vertical;min-height:64px}
+.invalid{border-color:var(--red)!important;box-shadow:0 0 0 3px rgba(192,57,43,.12)!important}
+table.items{width:100%;border-collapse:collapse;min-width:1100px}
+.items th{background:var(--g50);font-size:11.5px;font-weight:600;color:var(--g900);padding:8px 6px;border-bottom:1px solid var(--g200);text-align:left;white-space:nowrap}
+.items th.grp{background:var(--g100);text-align:center;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--g700)}
+.items td{padding:5px 4px;border-bottom:1px solid var(--line);vertical-align:middle}
+.items input{width:100%;border:1px solid transparent;background:transparent;border-radius:7px;padding:7px 8px;outline:none}
+.items input:hover{border-color:var(--line);background:#fff}
+.items input:focus{border-color:var(--g500);background:#fff;box-shadow:0 0 0 3px rgba(63,174,106,.12)}
+.items input.num{text-align:right;font-variant-numeric:tabular-nums}
+.items .calc{text-align:right;color:var(--g700);font-weight:500;font-variant-numeric:tabular-nums;padding-right:10px;white-space:nowrap}
+.items tfoot td{background:var(--g25);font-weight:600;padding:10px 8px;border-top:1px solid var(--g200)}
+.items.ro td{padding:9px 8px}
+.row-tools{display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:18px;align-items:start}
+.sum{position:sticky;top:16px}
+.sum-row{display:flex;justify-content:space-between;padding:7px 0;font-variant-numeric:tabular-nums}
+.sum-row span:first-child{color:var(--muted)}
+.sum-total{display:flex;justify-content:space-between;align-items:baseline;margin-top:8px;padding:14px;border-radius:10px;background:linear-gradient(135deg,var(--g600),var(--g700));color:#fff}
+.sum-total b{font-size:22px;font-variant-numeric:tabular-nums}
+.stack{display:flex;flex-direction:column;gap:8px}
+.page-h{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.page-h h1{font-size:20px;margin:0;letter-spacing:-.01em}
+.dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 18px}
+.dl div span{display:block;font-size:12px;color:var(--muted)}
+.dl div b{font-weight:600}
+.dl .wide{grid-column:1/-1}
+.timeline{list-style:none;margin:0;padding:0}
+.timeline li{position:relative;padding:0 0 14px 20px;font-size:13px}
+.timeline li::before{content:"";position:absolute;left:4px;top:5px;width:8px;height:8px;border-radius:50%;background:var(--g500)}
+.timeline li::after{content:"";position:absolute;left:7.5px;top:15px;bottom:0;width:1px;background:var(--g200)}
+.timeline li:last-child::after{display:none}
+.timeline li.rej::before{background:var(--red)}
+.hod-box{border:1px solid var(--g200);background:linear-gradient(180deg,#f5fbf7,#fff)}
+.stamp{display:inline-flex;align-items:center;gap:8px;border:2px solid currentColor;border-radius:8px;padding:6px 12px;font-weight:700;letter-spacing:.06em;font-size:13px;text-transform:uppercase}
+.stamp.approved{color:var(--g600)}.stamp.rejected{color:var(--red)}.stamp.pending{color:var(--amber)}.stamp.draft{color:#7a877f}
+.note{font-size:12.5px;background:var(--g50);border:1px dashed var(--g300);border-radius:9px;padding:10px 12px;color:var(--g900)}
+.note.warn{background:var(--red-bg);border-color:#f0b6ae;color:#7d2a20}
+/* modal & toast */
+.overlay{position:fixed;inset:0;background:rgba(20,40,30,.35);display:grid;place-items:center;z-index:50;padding:16px}
+.modal{background:#fff;border-radius:14px;width:min(520px,100%);max-height:90vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal .card-h{border-bottom:1px solid var(--line)}
+.modal .foot{display:flex;justify-content:flex-end;gap:8px;padding:14px 18px;border-top:1px solid var(--line)}
+#toasts{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:60}
+.toast{background:var(--g900);color:#fff;padding:10px 14px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);font-size:13px;max-width:340px}
+.toast.err{background:var(--red)}
+[hidden]{display:none!important}
+/* login */
+.login{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);background:#fff}
+.login-art{background:linear-gradient(150deg,#eaf7ee 0%,#cdebd6 55%,#a9dbb8 100%);padding:44px;display:flex;flex-direction:column;justify-content:space-between;position:relative;overflow:hidden}
+.login-art h1{font-size:34px;line-height:1.15;margin:0 0 12px;color:var(--g900);letter-spacing:-.02em;max-width:440px}
+.login-art p{color:var(--g700);max-width:420px;margin:0}
+.login-art .leaf{position:absolute;opacity:.5}
+.login-art .feat{display:flex;flex-direction:column;gap:10px;position:relative}
+.login-art .feat div{display:flex;gap:10px;align-items:center;color:var(--g900);font-weight:500}
+.login-art .feat i{width:28px;height:28px;border-radius:8px;background:rgba(255,255,255,.7);display:grid;place-items:center;color:var(--g700);font-style:normal}
+.login-side{display:grid;place-items:center;padding:32px 16px}
+.login-card{width:min(400px,100%)}
+.login-card h2{font-size:24px;margin:0 0 4px;letter-spacing:-.01em}
+.login-card form{display:flex;flex-direction:column;gap:14px;margin-top:22px}
+.login-card .btn.primary{justify-content:center;padding:11px}
+.pw-wrap{position:relative}.pw-wrap .input{padding-right:64px}
+.pw-wrap button{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:transparent;color:var(--g700);font-size:12px;font-weight:600;cursor:pointer;padding:4px 8px}
+.err-box{background:var(--red-bg);color:#7d2a20;border:1px solid #f0b6ae;border-radius:9px;padding:9px 12px;font-size:13px}
+/* user chip */
+.user-chip{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,.8);border:1px solid var(--g200);border-radius:12px;padding:5px 10px 5px 5px;cursor:pointer;position:relative;text-align:left}
+.user-chip:hover{background:#fff}
+.avatar{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--g500),var(--g700));color:#fff;display:grid;place-items:center;font-weight:700;font-size:13px;flex:none}
+.user-chip b{display:block;font-size:13.5px;color:var(--g900);line-height:1.2}
+.user-chip span{font-size:11.5px;color:var(--g700)}
+.menu{position:absolute;right:0;top:calc(100% + 6px);background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(20,64,42,.14);min-width:200px;padding:6px;z-index:30}
+.menu button{display:flex;gap:8px;align-items:center;width:100%;text-align:left;border:0;background:transparent;padding:9px 10px;border-radius:7px;cursor:pointer}
+.menu button:hover{background:var(--g50)}
+.chip.hod{background:var(--amber-bg);color:var(--amber)}.chip.admin{background:var(--violet-bg);color:var(--violet)}.chip.staff{background:var(--g100);color:var(--g700)}
+.chip.off{background:#eef1ef;color:#7a877f}.chip.approver{background:#e3f1f6;color:#1f6f8b}
+.checks{display:flex;flex-wrap:wrap;gap:8px}
+.checks label{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-weight:500;cursor:pointer}
+.checks label:has(input:checked){background:var(--g100);border-color:var(--g300);color:var(--g900)}
+@media (max-width:860px){.login{grid-template-columns:minmax(0,1fr)}.login-art{display:none}}
+@media (max-width:1050px){.layout{grid-template-columns:minmax(0,1fr)}.sum{position:static}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:760px){
+  .app{grid-template-columns:1fr}.side{display:none}
+  .top{grid-template-columns:1fr auto;padding:12px 16px}.clock{display:none}
+  .bar,.content{padding-left:16px;padding-right:16px}
+  .grid,.dl{grid-template-columns:1fr 1fr}.f.c2{grid-column:1/-1}
+  .search{min-width:0;max-width:none}
+}
+@media (max-width:480px){.grid,.dl,.kpis{grid-template-columns:minmax(0,1fr)}}
+@media print{.side,.top,.bar,.no-print{display:none!important}.app{display:block}.content{padding:0}.card{box-shadow:none}}
+</style>
+</head>
+<body>
+<div class="login" id="login" hidden></div>
+<div class="app" id="app" hidden>
+  <aside class="side">
+    <div class="logo" title="EcoClaim">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14Z" fill="#fff"/><path d="M5 19c3-4 6-7 10-10" stroke="#227a46" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </div>
+    <button class="nav-btn" data-nav="list"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span class="tip">All claims</span></button>
+    <button class="nav-btn" data-nav="new"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14h6"/></svg><span class="tip">New claim</span></button>
+    <button class="nav-btn" data-nav="hod"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="m9 12 2 2 4-4"/></svg><span class="tip">HOD approvals</span></button>
+    <button class="nav-btn" data-nav="users"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.5 3-6 7-6s7 2.5 7 6M16 4a4 4 0 0 1 0 8M22 21c0-3-2-5-5-5.7"/></svg><span class="tip">Users</span></button>
+    <button class="nav-btn" data-nav="settings"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class="tip">Admin configurations</span></button>
+  </aside>
+  <div class="main">
+    <header class="top">
+      <div class="brand"><span id="coName">LVC EcoPack Sdn Bhd</span><small>Mileage &amp; Expenses Claim</small></div>
+      <div class="clock"><div class="d" id="clkD"></div><div class="t" id="clkT"></div></div>
+      <div class="who" id="who"></div>
+    </header>
+    <div class="bar">
+      <div class="tabs" id="tabs">
+        <button data-tab="list" id="tabList">All Claims</button>
+        <button data-tab="new">New Claim</button>
+        <button data-tab="hod" id="tabHod">HOD Approvals<span class="count" id="pendCount">0</span></button>
+        <button data-tab="users" id="tabUsers">Users</button>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn" id="btnSettings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.5 3-6 7-6 1.4 0 2.6.3 3.7.8M17 14v3l2 1.5"/><circle cx="17.5" cy="17.5" r="4.5"/></svg>Admin Configurations</button>
+    </div>
+    <main class="content" id="view"></main>
+  </div>
+</div>
+<div id="toasts"></div>
+
+<script>
+/* ---------- helpers ---------- */
+const LS_CLAIMS='ecoclaim_claims_v1', LS_SET='ecoclaim_settings_v1', LS_USERS='ecoclaim_users_v1', LS_LOCK='ecoclaim_lock_v1', SS_SESSION='ecoclaim_session_v1';
+const IDLE_MINUTES=30;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num=v=>{const n=parseFloat(v);return isFinite(n)?n:0};
+const r2=n=>Math.round((num(n)+Number.EPSILON)*100)/100;
+const fmt2=n=>num(n).toLocaleString('en-MY',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtKm=n=>num(n).toLocaleString('en-MY',{maximumFractionDigits:2});
+const rm=n=>'RM '+fmt2(n);
+const pad=n=>String(n).padStart(2,'0');
+const isoOf=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const todayISO=()=>isoOf(new Date());
+const dmy=iso=>{if(!iso)return'';const[y,m,d]=iso.split('-');return `${d}/${m}/${y}`};
+const monthLabel=ym=>{if(!ym)return'';const[y,m]=ym.split('-');return new Date(+y,+m-1,1).toLocaleString('en-GB',{month:'long',year:'numeric'})};
+const monthBounds=ym=>{const[y,m]=ym.split('-').map(Number);return[`${y}-${pad(m)}-01`,isoOf(new Date(y,m,0))]};
+const uid=()=>Math.random().toString(36).slice(2,9)+Date.now().toString(36);
+const dtStamp=iso=>{const d=new Date(iso);return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+', '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})};
+function load(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}}
+function save(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){toast('Could not save – browser storage is blocked','err')}}
+function toast(msg,type){const t=document.createElement('div');t.className='toast '+(type||'');t.textContent=msg;$('#toasts').appendChild(t);setTimeout(()=>t.remove(),3200)}
+
+const ICON={
+  eye:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
+  trash:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+  pen:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
+  check:'<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"/></svg>',
+  x:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  xls:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 12l4 5M13 12l-4 5"/></svg>',
+  pdf:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 15h6M9 18h4"/></svg>',
+  back:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>',
+  plus:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  car:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 16V11l2-5h10l2 5v5M3 16h18v3H3zM7 19v1M17 19v1"/><circle cx="7.5" cy="13.5" r=".5"/><circle cx="16.5" cy="13.5" r=".5"/></svg>',
+  receipt:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6"/></svg>',
+  copy:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>'
+};
+const STATUS={draft:{label:'Draft',cls:'b-draft'},pending:{label:'Pending HOD',cls:'b-pending'},approved:{label:'Approved',cls:'b-approved'},rejected:{label:'Rejected',cls:'b-rejected'}};
+const badge=s=>`<span class="badge ${STATUS[s].cls}">${STATUS[s].label}</span>`;
+
+/* ---------- state ---------- */
+const DEFAULT_SETTINGS={company:'LVC EcoPack Sdn Bhd',rate:0.5,departments:['Sales','Operations','Logistics','Finance','Admin','Management'],seq:1};
+const state={
+  settings:Object.assign({},DEFAULT_SETTINGS,load(LS_SET,{})),
+  claims:load(LS_CLAIMS,null),
+  users:load(LS_USERS,[]),
+  user:null,
+  view:{name:'list'}, tab:'list',
+  filter:{q:'',status:'all',month:''}, pages:{}, draft:null
+};
+if(!state.claims){state.claims=[seedClaim()];persist()}
+function persist(){save(LS_CLAIMS,state.claims);save(LS_SET,state.settings);save(LS_USERS,state.users)}
+
+/* ---------- auth ---------- */
+const ROLES={staff:{label:'Staff'},hod:{label:'Head of Department (HOD)',short:'HOD'},approver:{label:'Approver',short:'Approver'},admin:{label:'Administrator',short:'Admin'}};
+const emailOk=e=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+const roleChip=r=>`<span class="chip ${r}">${ROLES[r].short||ROLES[r].label}</span>`;
+const hex=buf=>[...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+const hasCrypto=()=>!!(window.crypto&&crypto.subtle&&crypto.getRandomValues);
+async function hashPw(pw,salt){
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+  return hex(await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:150000,hash:'SHA-256'},key,256));
+}
+async function setPassword(u,pw){u.salt=hex(crypto.getRandomValues(new Uint8Array(16)));u.passHash=await hashPw(pw,u.salt)}
+const pwRule='At least 8 characters, with letters and numbers.';
+const pwOk=pw=>pw.length>=8&&/[A-Za-z]/.test(pw)&&/\d/.test(pw);
+const initials=n=>String(n||'?').trim().split(/\s+/).slice(0,2).map(w=>w[0]).join('').toUpperCase();
+const me=()=>state.user;
+const isAdmin=()=>me()&&me().role==='admin';
+const isHOD=()=>me()&&me().role==='hod';
+const ownsClaim=c=>c.ownerId?c.ownerId===me().id:(c.claimant||'').trim().toLowerCase()===(me().name||'').trim().toLowerCase();
+const isApprover=()=>me()&&me().role==='approver';
+const canApproveRole=()=>isHOD()||isApprover();
+/* departments a user may approve: an HOD covers their own department, an Approver covers the departments assigned to them */
+const approveDeptsOf=u=>u.role==='hod'?[u.department]:u.role==='approver'?(u.approveDepts||[]):[];
+const coversDept=(u,d)=>approveDeptsOf(u).includes(d);
+const canSee=c=>isAdmin()||ownsClaim(c)||coversDept(me(),c.department);
+/* approval is restricted to the HOD / Approver of the claim's department, and never on their own claim */
+const canApprove=c=>c.status==='pending'&&coversDept(me(),c.department)&&!ownsClaim(c);
+const canRevoke=c=>c.status==='approved'&&coversDept(me(),c.department)&&!ownsClaim(c);
+const approversFor=c=>state.users.filter(u=>u.active!==false&&coversDept(u,c.department)&&u.id!==c.ownerId);
+const ownerOf=c=>state.users.find(u=>u.id===c.ownerId);
+function getSession(){try{return JSON.parse(sessionStorage.getItem(SS_SESSION)||'null')}catch(e){return null}}
+function setSession(v){try{v?sessionStorage.setItem(SS_SESSION,JSON.stringify(v)):sessionStorage.removeItem(SS_SESSION)}catch(e){}}
+let lastActivity=Date.now();
+['click','keydown','mousemove','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{lastActivity=Date.now()},{passive:true}));
+setInterval(()=>{if(state.user&&Date.now()-lastActivity>IDLE_MINUTES*60000){logout('You were signed out after '+IDLE_MINUTES+' minutes of inactivity.')}},30000);
+
+const LEAF='<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14Z" fill="#fff"/><path d="M5 19c3-4 6-7 10-10" stroke="#227a46" stroke-width="1.6" stroke-linecap="round"/></svg>';
+function showLogin(msg){
+  $('#app').hidden=true;closeModal();const L=$('#login');L.hidden=false;
+  const S=state.settings,first=!state.users.length;
+  const deptOpts=sel=>S.departments.map(d=>`<option ${d===sel?'selected':''}>${esc(d)}</option>`).join('');
+  L.innerHTML=`
+  <div class="login-art">
+    <svg class="leaf" style="right:-60px;top:-40px" width="320" height="320" viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14Z" fill="#fff"/></svg>
+    <svg class="leaf" style="left:-40px;bottom:-70px;transform:rotate(200deg)" width="260" height="260" viewBox="0 0 24 24"><path d="M5 19c0-8 5-13 14-14-1 9-6 14-14 14Z" fill="#8fd1a4"/></svg>
+    <div style="display:flex;align-items:center;gap:12px;position:relative"><div class="logo" style="margin:0">${LEAF}</div><div class="brand">${esc(S.company)}<small>EcoClaim</small></div></div>
+    <div style="position:relative"><h1>Mileage &amp; Expenses Claims, the paperless way.</h1><p>Submit your monthly mileage and expenses, get approval from your Head of Department, and export to Excel or PDF.</p></div>
+    <div class="feat"><div><i>1</i>Staff submit their monthly claim</div><div><i>2</i>The HOD of the department approves it</div><div><i>3</i>Export the approved claim to Excel / PDF</div></div>
+  </div>
+  <div class="login-side"><div class="login-card">
+    ${first?`<h2>Set up EcoClaim</h2><p class="muted" style="margin:0">Create the first <b>Administrator</b> account. You can then add staff and HODs.</p>
+      <form id="setupForm" autocomplete="off">
+        ${!hasCrypto()?`<div class="err-box">This browser can't encrypt passwords. Please open the file in Chrome or Edge.</div>`:''}
+        <div class="f"><label>Full name</label><input class="input" id="suName" required></div>
+        <div class="f"><label>Username</label><input class="input" id="suUser" required placeholder="e.g. admin"></div>
+        <div class="f"><label>Email</label><input class="input" type="email" id="suEmail" required placeholder="name@company.com"></div>
+        <div class="f"><label>Department</label><select class="input" id="suDept">${deptOpts('Admin')}</select></div>
+        <div class="f"><label>Password</label><input class="input" type="password" id="suPw" autocomplete="new-password" required><span class="sub">${pwRule}</span></div>
+        <div class="f"><label>Confirm password</label><input class="input" type="password" id="suPw2" autocomplete="new-password" required></div>
+        <div id="lgErr"></div>
+        <button class="btn primary" type="submit">Create administrator &amp; sign in</button>
+      </form>
+      <div style="display:flex;align-items:center;gap:10px;margin:18px 0 12px;color:var(--muted);font-size:12px"><span style="flex:1;height:1px;background:var(--line)"></span>or just exploring?<span style="flex:1;height:1px;background:var(--line)"></span></div>
+      <button class="btn soft" id="demoBtn" type="button" style="width:100%;justify-content:center;padding:11px">Try with demo accounts</button>
+      <p class="sub" style="margin:8px 0 0;text-align:center">Creates sample Admin, HOD and Staff logins. You can remove them later in Admin Configurations.</p>`
+    :`<h2>Welcome back</h2><p class="muted" style="margin:0">Sign in to submit or approve claims.</p>
+      <form id="loginForm">
+        ${msg?`<div class="note">${esc(msg)}</div>`:''}
+        <div class="f"><label>Username or email</label><input class="input" id="lgUser" autocomplete="username" required autofocus></div>
+        <div class="f"><label>Password</label><div class="pw-wrap"><input class="input" type="password" id="lgPw" autocomplete="current-password" required><button type="button" id="lgShow">Show</button></div></div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+          <div class="f"><label>Department</label><select class="input" id="lgDept"><option value="">Select…</option>${deptOpts('')}</select></div>
+          <div class="f"><label>Role</label><select class="input" id="lgRole"><option value="">Select…</option>${Object.entries(ROLES).map(([k,v])=>`<option value="${k}">${v.short||v.label}</option>`).join('')}</select></div>
+        </div>
+        <div id="lgErr"></div>
+        <button class="btn primary" type="submit">Sign in</button>
+        <p class="sub" style="margin:0;text-align:center">Forgot your password? Ask your Administrator to reset it.</p>
+      </form>
+      ${S.demo&&state.users.some(u=>u.demo)?`<div class="card" style="margin:22px 0 0;box-shadow:none"><div class="card-h" style="padding:12px 14px"><h3 style="font-size:14px">Demo accounts</h3><span class="sub">Password for all: <b>${DEMO_PW}</b></span></div>
+        <div class="stack" style="padding:10px">${state.users.filter(u=>u.demo).map(u=>`<button type="button" class="btn" data-demo="${u.id}" style="justify-content:flex-start;width:100%"><div class="avatar" style="width:28px;height:28px;font-size:11px">${esc(initials(u.name))}</div><span style="flex:1;text-align:left"><b>${esc(u.name)}</b> <span class="sub">@${esc(u.username)}</span></span><span class="sub">${esc(u.department)}</span>${roleChip(u.role)}</button>`).join('')}</div></div>`:''}`}
+  </div></div>`;
+  const err=m=>{$('#lgErr').innerHTML=m?`<div class="err-box">${esc(m)}</div>`:''};
+  if(first){
+    $('#setupForm').onsubmit=async e=>{e.preventDefault();if(!hasCrypto())return err('Open this file in Chrome or Edge.');
+      const name=$('#suName').value.trim(),un=$('#suUser').value.trim().toLowerCase(),pw=$('#suPw').value;
+      if(!name)return err('Enter your full name.');
+      if(!/^[a-z0-9._-]{3,30}$/.test(un))return err('Username: 3–30 letters, numbers, dot, dash or underscore.');
+      const email=$('#suEmail').value.trim().toLowerCase();if(!emailOk(email))return err('Enter a valid email address.');
+      if(!pwOk(pw))return err(pwRule);if(pw!==$('#suPw2').value)return err('Passwords do not match.');
+      const u={id:uid(),name,username:un,email,department:$('#suDept').value,role:'admin',active:true,mustChange:false,createdAt:new Date().toISOString()};
+      await setPassword(u,pw);state.users.push(u);persist();signIn(u)};
+    $('#demoBtn').onclick=async()=>{if(!hasCrypto())return err('Open this file in Chrome or Edge.');$('#demoBtn').disabled=true;$('#demoBtn').textContent='Creating demo accounts…';await loadDemo()};
+    return;
+  }
+  L.querySelectorAll('[data-demo]').forEach(b=>b.onclick=()=>{const u=state.users.find(x=>x.id===b.dataset.demo);
+    $('#lgUser').value=u.email||u.username;$('#lgPw').value=DEMO_PW;$('#lgDept').value=u.department;$('#lgRole').value=u.role;err('')});
+  $('#lgShow').onclick=()=>{const p=$('#lgPw');p.type=p.type==='password'?'text':'password';$('#lgShow').textContent=p.type==='password'?'Show':'Hide'};
+  $('#loginForm').onsubmit=async e=>{e.preventDefault();err('');
+    if(!hasCrypto())return err('This browser can\'t verify passwords. Open the file in Chrome or Edge.');
+    const un=$('#lgUser').value.trim().toLowerCase(),pw=$('#lgPw').value,dept=$('#lgDept').value,role=$('#lgRole').value;
+    if(!un||!pw||!dept||!role)return err('Enter your username or email, password, department and role.');
+    const u=state.users.find(x=>x.username===un||(x.email&&x.email===un)),lockKey=u?u.username:un;
+    const locks=load(LS_LOCK,{}),lk=locks[lockKey]||{n:0,until:0};
+    if(lk.until>Date.now())return err(`Too many failed attempts. Try again in ${Math.ceil((lk.until-Date.now())/60000)} minute(s).`);
+    let ok=false;if(u){ok=(await hashPw(pw,u.salt))===u.passHash&&u.department===dept&&u.role===role}
+    if(!ok){lk.n++;if(lk.n>=5){lk.until=Date.now()+5*60000;lk.n=0}locks[lockKey]=lk;save(LS_LOCK,locks);
+      return err('Sign-in failed. Check your username or email, password, department and role.')}
+    if(u.active===false)return err('This account is disabled. Contact your Administrator.');
+    delete locks[lockKey];save(LS_LOCK,locks);signIn(u)};
+}
+/* ---------- demo mode ---------- */
+const DEMO_PW='Demo1234';
+/* demo emails use example.com so a test notification never reaches a real inbox */
+const DEMO_USERS=[['System Admin','admin','Admin','admin'],['TEY KOK LEONG','tey','Sales','hod'],['Timothy Lim','timothy','Sales','staff'],['Lee Mei','leemei','Logistics','hod'],['Ahmad Faiz','ahmad','Logistics','staff'],['Nora Hassan','nora','Finance','approver',['Sales','Logistics']]];
+async function loadDemo(){
+  const S=state.settings;
+  for(const[name,username,department,role,approveDepts]of DEMO_USERS){
+    if(!S.departments.includes(department))S.departments.push(department);
+    const u={id:uid(),name,username,email:username+'@example.com',department,role,approveDepts:approveDepts||[],active:true,mustChange:false,demo:true,createdAt:new Date().toISOString()};await setPassword(u,DEMO_PW);state.users.push(u)}
+  const tim=state.users.find(u=>u.username==='timothy');
+  state.claims.forEach(c=>{if(!c.ownerId&&c.claimant.trim()==='Timothy Lim')c.ownerId=tim.id});
+  const it=(date,from,to,km,desc,o)=>Object.assign(blankItem(date),{from:from||'',to:to||'',km:km??'',desc:desc||''},o||{});
+  const c={id:uid(),demo:true,ownerId:tim.id,ref:nextRef('2026-10'),claimName:'Customer visits – October 2026',claimant:tim.name,email:tim.email,department:'Sales',month:'2026-10',
+    purpose:'Customer meetings and sample collection (DHL, New Asia).',dateClaimed:todayISO(),periodFrom:'2026-10-01',periodTo:'2026-10-31',rate:S.rate,status:'pending',hod:null,
+    items:[it('2026-10-02','Gaya Resort Home','New Asia',38,'Meeting with Suresh'),it('','New Asia','DHL Supply Chain PKFZ',3.5,'Meeting with Syaliny',{toll:'4.20',parking:'3.00'}),it('','DHL Supply Chain PKFZ','Gaya Resort Home',58),
+      it('2026-10-06','Gaya Resort Home','DHL ILC1',11,'Meeting with Anujashini'),it('','DHL ILC1','Gaya Resort Home',11),it('2026-10-06','','','','Lunch meeting with DHL team',{other:'86.50',receipt:'INV-20145'})],
+    history:[],createdAt:new Date().toISOString()};
+  addHistory(c,'created',tim.name);addHistory(c,'submitted',tim.name);state.claims.push(c);
+  S.demo=true;persist();showLogin('Demo accounts are ready – click one below to fill in the sign-in form.');
+}
+function endDemo(){
+  const demoIds=new Set(state.users.filter(u=>u.demo).map(u=>u.id));
+  state.users=state.users.filter(u=>!u.demo);
+  state.claims=state.claims.filter(c=>!c.demo);
+  state.claims.forEach(c=>{if(demoIds.has(c.ownerId))delete c.ownerId;if(c.hod&&demoIds.has(c.hod.userId))delete c.hod.userId});
+  state.settings.demo=false;save(LS_LOCK,{});persist();closeModal();
+  if(!state.users.some(u=>u.id===(me()&&me().id))){state.user=null;state.draft=null;setSession(null);showLogin()}else{toast('Demo accounts removed');render()}
+}
+function signIn(u){state.user=u;setSession({uid:u.id,at:Date.now()});lastActivity=Date.now();u.lastLogin=new Date().toISOString();persist();
+  $('#login').hidden=true;$('#login').innerHTML='';$('#app').hidden=false;
+  state.tab=state.claims.some(canApprove)?'hod':'list';state.view={name:'list'};state.filter={q:'',status:'all',month:''};state.pages={};render();
+  toast(`Signed in as ${u.name} (${ROLES[u.role].short||ROLES[u.role].label})`);
+  if(u.mustChange)changePassword(true)}
+function logout(msg){if(!state.user)return;state.user=null;state.draft=null;setSession(null);showLogin(msg||'You have signed out.')}
+function changePassword(forced){
+  modal(`<div class="card-h"><h3>${forced?'Set a new password':'Change password'}</h3></div><div class="card-b stack">
+    ${forced?`<div class="note">Your Administrator gave you a temporary password. Please choose your own before continuing.</div>`:`<div class="f"><label>Current password</label><input class="input" type="password" id="cpOld" autocomplete="current-password"></div>`}
+    <div class="f"><label>New password</label><input class="input" type="password" id="cpNew" autocomplete="new-password"><span class="sub">${pwRule}</span></div>
+    <div class="f"><label>Confirm new password</label><input class="input" type="password" id="cpNew2" autocomplete="new-password"></div>
+  </div><div class="foot">${forced?`<button class="btn" id="cpOut">Sign out</button>`:`<button class="btn" data-close>Cancel</button>`}<button class="btn primary" id="cpOk">Save password</button></div>`,forced);
+  if(forced)$('#cpOut').onclick=()=>logout();
+  $('#cpOk').onclick=async()=>{const u=me(),nw=$('#cpNew').value;
+    if(!forced&&(await hashPw($('#cpOld').value,u.salt))!==u.passHash)return toast('Current password is incorrect','err');
+    if(!pwOk(nw))return toast(pwRule,'err');if(nw!==$('#cpNew2').value)return toast('Passwords do not match','err');
+    if((await hashPw(nw,u.salt))===u.passHash)return toast('Choose a password different from the current one','err');
+    await setPassword(u,nw);u.mustChange=false;persist();closeModal();toast('Password updated')};
+}
+function nextRef(month){const n=state.settings.seq++;return `CLM-${(month||todayISO().slice(0,7)).replace('-','')}-${String(n).padStart(3,'0')}`}
+
+function seedClaim(){
+  const it=(date,from,to,km,desc,other)=>({id:uid(),date:date||'',from:from||'',to:to||'',km:km??'',toll:'',parking:'',other:other??'',desc:desc||'',receipt:''});
+  const H='Gaya Resort Home',D='DHL Supply Chain PKFZ',N='New Asia';
+  return {id:uid(),ref:'CLM-202609-000',claimName:'Customer visits & deliveries – September 2026',claimant:'Timothy Lim',department:'Sales',month:'2026-09',
+    purpose:'Collection & delivery of goods, sample collection, customer meetings (DHL, New Asia, Petikemas) and KL–JB site visit.',
+    dateClaimed:'2026-08-28',periodFrom:'2026-08-28',periodTo:'2026-09-28',rate:0.5,status:'approved',
+    hod:{name:'TEY KOK LEONG',date:'2026-10-09',remarks:''},
+    items:[
+      it('2026-09-04',H,'VTEB Baker Hugh',10,'Collection of goods'),it('','VTEB Baker Hugh',N,51,'Deliver and meeting with Suresh'),it('',N,D,3.5,'Meeting with Syaliny'),it('',D,H,58),
+      it('2026-09-07',H,'Mectech',10,'Collect goods'),it('','Mectech',N,53,'Deliver goods'),it('',N,D,3.5,'Meeting with Syaliny'),it('',D,H,38),
+      it('2026-09-09',H,'DHL ILC1',11,'Meeting with Anujashini'),it('','DHL ILC1',H,11),
+      it('2026-09-10','','','','232 2486299995 – return flight KL-JB site visit (Syaliny – DHL)',752.6),
+      it('2026-09-10','','','','232 2486299996 – return flight KL-JB site visit (Timothy – LVC)',752.6),
+      it('2026-09-10','','','','A-9QKE6LEGXXSVAV – Grab ride to KLIA (Timothy – LVC)',64.73),
+      it('2026-09-10','','','','A-9QHW224GXDGNAV – Grab ride to KLIA (Syaliny – DHL)',75.71),
+      it('2026-09-11','','','','A-9QRKE5WWXFLKAV – Grab ride from KLIA (Timothy – LVC)',75.73),
+      it('2026-09-11','','','','A-9QRKDB4WX89SAV – Grab ride from KLIA (Syaliny – DHL)',74.71),
+      it('2026-09-14',H,'Petikemas',38,'Meeting and checking printer machine'),it('','Petikemas',D,3.5,'Meeting with Syaliny'),it('',D,H,58),
+      it('2026-09-15',H,'PSE',19,'Collect sample'),it('','PSE',D,34,'Meeting with Syaliny'),it('',D,H,58),
+      it('2026-09-21',H,'Kweng Hong',59,'Collect sample'),it('','Kweng Hong',D,84,'Meeting with Syaliny'),it('',D,'Petikemas',3.5,'Meeting with Calvin'),it('','Petikemas',H,38),
+      it('2026-09-24',H,'DHL ILC1',11,'Meeting with Anujashini'),it('','DHL ILC1',H,11),
+      it('2026-09-25',H,N,38,'Meeting with Suresh & Bala'),it('',N,D,3.5,'Meeting with Liyana'),it('',D,H,58),
+      it('2026-09-26',H,N,38,'Meeting with Elya & Suresh'),it('',N,H,38)
+    ],
+    history:[{at:'2026-08-28T09:00:00',by:'Timothy Lim',action:'submitted',note:''},{at:'2026-10-09T10:00:00',by:'TEY KOK LEONG',action:'approved',note:''}],
+    createdAt:'2026-08-28T09:00:00',updatedAt:'2026-10-09T10:00:00'};
+}
+
+function totals(c){let km=0,toll=0,park=0,other=0;(c.items||[]).forEach(i=>{km+=num(i.km);toll+=num(i.toll);park+=num(i.parking);other+=num(i.other)});
+  const mileage=r2(km*num(c.rate));return{km:r2(km),mileage,toll:r2(toll),park:r2(park),other:r2(other),total:r2(mileage+toll+park+other)}}
+const isBlankItem=i=>!['date','from','to','km','toll','parking','other','desc','receipt'].some(k=>String(i[k]??'').trim()!=='');
+const blankItem=(date)=>({id:uid(),date:date||'',from:'',to:'',km:'',toll:'',parking:'',other:'',desc:'',receipt:''});
+const getClaim=id=>state.claims.find(c=>c.id===id);
+const canEdit=c=>ownsClaim(c)&&(c.status==='draft'||c.status==='rejected');
+const canDelete=c=>isAdmin()||(ownsClaim(c)&&(c.status==='draft'||c.status==='rejected'));
+const fileBase=c=>`Mileage & Expenses Claim Form (${(c.claimant||'Claimant').trim()} - ${monthLabel(c.month)||'Undated'})`.replace(/[\\/:*?"<>|]/g,'-');
+function addHistory(c,action,by,note){const at=new Date().toISOString();c.history.push({at,by,action,note:note||''});c.updatedAt=at}
+
+/* ---------- chrome ---------- */
+function tickClock(){const d=new Date(),day=d.getDate(),sfx=(day%10===1&&day!==11)?'st':(day%10===2&&day!==12)?'nd':(day%10===3&&day!==13)?'rd':'th';
+  $('#clkD').textContent=`${day}${sfx} ${d.toLocaleString('en-GB',{month:'long'})} ${d.getFullYear()}`;
+  $('#clkT').textContent=d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}
+tickClock();setInterval(tickClock,20000);
+
+function syncChrome(){
+  const u=me();
+  $('#coName').textContent=state.settings.company;
+  $('#tabHod').hidden=!canApproveRole();$('#tabUsers').hidden=!isAdmin();$('#btnSettings').hidden=!isAdmin();
+  $('#tabHod').firstChild.textContent=isApprover()?'Approvals':'HOD Approvals';
+  document.querySelector('[data-nav=hod]').hidden=!canApproveRole();document.querySelector('[data-nav=users]').hidden=!isAdmin();document.querySelector('[data-nav=settings]').hidden=!isAdmin();
+  $('#tabList').textContent=isAdmin()?'All Claims':canApproveRole()?'Department Claims':'My Claims';
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===state.tab));
+  document.querySelectorAll('.nav-btn[data-nav]').forEach(b=>b.classList.toggle('active',b.dataset.nav===state.tab));
+  const p=state.claims.filter(canApprove).length;$('#pendCount').textContent=p;$('#pendCount').style.display=p?'':'none';
+  $('#who').innerHTML=`<button class="user-chip" id="uChip"><div class="avatar">${esc(initials(u.name))}</div><div><b>${esc(u.name)}</b><span>${esc(u.department)} · ${ROLES[u.role].short||ROLES[u.role].label}</span></div></button>`;
+  $('#uChip').onclick=e=>{e.stopPropagation();const old=$('#uMenu');if(old){old.remove();return}
+    const m=document.createElement('div');m.className='menu';m.id='uMenu';
+    m.innerHTML=`<div style="padding:8px 10px 10px;border-bottom:1px solid var(--line);margin-bottom:4px"><b>${esc(u.name)}</b><div class="sub">@${esc(u.username)} · ${esc(ROLES[u.role].label)}</div>${u.email?`<div class="sub">${esc(u.email)}</div>`:''}${u.role==='approver'?`<div class="sub">Approves: ${esc((u.approveDepts||[]).join(', ')||'—')}</div>`:''}</div>
+      <button data-m="pw">Change password</button><button data-m="out" style="color:var(--red)">Sign out</button>`;
+    $('#who').style.position='relative';$('#who').appendChild(m);
+    m.querySelector('[data-m=pw]').onclick=()=>{m.remove();changePassword(false)};
+    m.querySelector('[data-m=out]').onclick=()=>{m.remove();if(state.view.name==='edit'&&state.draft&&state.draft._dirty&&!confirm('Discard unsaved changes and sign out?'))return;logout()}};
+}
+document.addEventListener('click',e=>{const m=$('#uMenu');if(m&&!e.target.closest('#uMenu'))m.remove()});
+function go(tab){
+  if(state.view.name==='edit'&&state.draft&&state.draft._dirty&&!confirm('Discard unsaved changes to this claim?'))return;
+  state.draft=null;
+  if(tab==='settings'){if(isAdmin())openSettings();return}
+  if((tab==='users'&&!isAdmin())||(tab==='hod'&&!canApproveRole()))return;
+  state.tab=tab;
+  if(tab==='new'){startNew();return}
+  state.view={name:tab==='users'?'users':'list'};render();
+}
+document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>go(b.dataset.tab));
+document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>go(b.dataset.nav));
+$('#btnSettings').onclick=()=>{if(isAdmin())openSettings()};
+
+/* ---------- modal ---------- */
+function modal(html,locked){closeModal();const o=document.createElement('div');o.className='overlay';o.id='ovl';o.innerHTML=`<div class="modal">${html}</div>`;
+  if(locked)o.dataset.locked='1';
+  o.addEventListener('click',e=>{if((e.target===o&&!locked)||e.target.closest('[data-close]'))closeModal()});document.body.appendChild(o)}
+function closeModal(){const o=$('#ovl');if(o)o.remove()}
+function confirmBox(title,msg,okLabel,danger,cb){
+  modal(`<div class="card-h"><h3>${esc(title)}</h3></div><div class="card-b">${msg}</div><div class="foot"><button class="btn" data-close>Cancel</button><button class="btn ${danger?'danger':'primary'}" id="cfOk">${esc(okLabel)}</button></div>`);
+  $('#cfOk').onclick=()=>{closeModal();cb()};
+}
+
+/* ---------- render ---------- */
+function render(){if(!me())return showLogin();syncChrome();const v=state.view;
+  if(v.name==='list')renderList();else if(v.name==='users')renderUsers();else if(v.name==='edit')renderEditor();else if(v.name==='view')renderView(getClaim(v.id));
+  window.scrollTo({top:0})}
+
+function renderList(){
+  const hodTab=state.tab==='hod', f=state.filter, q=f.q.trim().toLowerCase();
+  let list=state.claims.filter(canSee).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
+  if(hodTab)list=list.filter(canApprove);
+  if(q)list=list.filter(c=>[c.claimName,c.claimant,c.ref,c.purpose,c.department].join(' ').toLowerCase().includes(q));
+  if(f.month)list=list.filter(c=>c.month===f.month);
+  const all=state.claims.filter(canSee), sumBy=s=>all.filter(c=>c.status===s);
+  const amt=a=>a.reduce((s,c)=>s+totals(c).total,0);
+  const kp=sumBy('pending'),ka=sumBy('approved'),kr=sumBy('rejected'),kd=sumBy('draft');
+  const months=[...new Set(all.map(c=>c.month).filter(Boolean))].sort().reverse();
+  const order=hodTab?['pending']:(f.status==='all'?['pending','approved','rejected','draft']:[f.status]);
+  const depts=approveDeptsOf(me()).map(esc).join(', ');
+  const title=hodTab?`${isApprover()?'Approvals':'HOD Approvals'} – ${depts||'no departments assigned'}`:isAdmin()?'All Mileage &amp; Expenses Claims':canApproveRole()?`${depts} Claims`:'My Mileage &amp; Expenses Claims';
+  let html=`<div class="page-h"><h1>${title}</h1><span class="spacer"></span>
+    <button class="btn" id="expList">${ICON.xls}Export list to Excel</button>
+    <button class="btn primary" id="newBtn">${ICON.plus}New Claim</button></div>
+  <div class="kpis">
+    <div class="kpi accent"><div class="l">Pending HOD approval</div><div class="v">${rm(amt(kp))}</div><div class="s">${kp.length} claim${kp.length===1?'':'s'} awaiting review</div></div>
+    <div class="kpi"><div class="l">Approved</div><div class="v">${rm(amt(ka))}</div><div class="s">${ka.length} claim${ka.length===1?'':'s'}</div></div>
+    <div class="kpi"><div class="l">Rejected</div><div class="v">${kr.length}</div><div class="s">returned for correction</div></div>
+    <div class="kpi"><div class="l">Drafts</div><div class="v">${kd.length}</div><div class="s">not yet submitted</div></div>
+  </div>
+  <div class="filters">
+    <input class="search" id="fq" placeholder="Search claim name, claimant, ref…" value="${esc(f.q)}">
+    ${hodTab?'':`<select id="fs">${['all','pending','approved','rejected','draft'].map(s=>`<option value="${s}" ${f.status===s?'selected':''}>${s==='all'?'All statuses':STATUS[s].label}</option>`).join('')}</select>`}
+    <select id="fm"><option value="">All months</option>${months.map(m=>`<option value="${m}" ${f.month===m?'selected':''}>${monthLabel(m)}</option>`).join('')}</select>
+  </div>`;
+  order.forEach(s=>{
+    const rows=list.filter(c=>c.status===s); if(f.status==='all'&&!hodTab&&!rows.length&&s!=='pending')return;
+    const per=6, pg=Math.min(state.pages[s]||1,Math.max(1,Math.ceil(rows.length/per))), slice=rows.slice((pg-1)*per,pg*per), pages=Math.ceil(rows.length/per);
+    html+=`<div class="card"><div class="card-h"><h3>Status</h3>${badge(s)}<span class="sub">${rows.length} claim${rows.length===1?'':'s'}</span></div>`;
+    if(!rows.length){html+=`<div class="empty">${s==='pending'?(hodTab?'Nothing waiting for your approval. 🌿':'No claims are waiting for HOD approval.'):'No claims.'}</div></div>`;return}
+    html+=`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Claim</th><th>Claimant</th><th>Month of Claim</th><th>Purpose of Claim</th><th class="r">Mileage</th><th class="r">Total Claim</th><th>${s==='approved'?'Approved by':'Last update'}</th><th></th></tr></thead><tbody>`;
+    slice.forEach(c=>{const t=totals(c);
+      html+=`<tr data-id="${c.id}"><td><div class="nm">${esc(c.claimName||'(untitled claim)')}</div><div class="sub">${esc(c.ref)}</div></td>
+      <td><div class="nm">${esc(c.claimant)}</div><span class="chip ${c.department==='Sales'?'g':''}">${esc(c.department||'—')}</span></td>
+      <td>${esc(monthLabel(c.month))}</td>
+      <td class="muted" style="max-width:260px"><div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.purpose)}</div></td>
+      <td class="r">${fmtKm(t.km)} km</td><td class="r nm">${rm(t.total)}</td>
+      <td class="sub">${s==='approved'&&c.hod?esc(c.hod.name)+'<br>'+dmy(c.hod.date):dtStamp(c.updatedAt)}</td>
+      <td><div class="acts">
+        ${canApprove(c)?`<button class="btn sm soft" data-a="view">${ICON.check}Review</button>`:`<button class="icon-btn" data-a="view" title="View">${ICON.eye}</button>`}
+        ${canDelete(c)?`<button class="icon-btn del" data-a="del" title="Delete">${ICON.trash}</button>`:''}
+        ${canEdit(c)?`<button class="icon-btn" data-a="edit" title="Edit">${ICON.pen}</button>`:''}
+      </div></td></tr>`});
+    html+=`</tbody></table></div>`;
+    if(pages>1){html+=`<div class="pager" data-s="${s}"><button class="btn sm" data-pg="${pg-1}" ${pg===1?'disabled':''}>${ICON.back}Previous</button><div class="pages">${Array.from({length:pages},(_,i)=>`<button data-pg="${i+1}" class="${i+1===pg?'on':''}">${i+1}</button>`).join('')}</div><button class="btn sm" data-pg="${pg+1}" ${pg===pages?'disabled':''}>Next →</button></div>`}
+    html+=`</div>`;
+  });
+  if(!list.length&&!hodTab&&f.status==='all'&&all.length)html+=`<div class="empty">No claims match your filters.</div>`;
+  $('#view').innerHTML=html;
+  const nb=$('#newBtn');if(nb)nb.onclick=()=>{state.tab='new';startNew()};
+  $('#expList').onclick=()=>exportListExcel(list);
+  $('#fq').oninput=e=>{state.filter.q=e.target.value;state.pages={};const pos=e.target.selectionStart;renderList();const n=$('#fq');n.focus();n.setSelectionRange(pos,pos)};
+  const fs=$('#fs');if(fs)fs.onchange=e=>{state.filter.status=e.target.value;state.pages={};renderList()};
+  $('#fm').onchange=e=>{state.filter.month=e.target.value;state.pages={};renderList()};
+  $('#view').querySelectorAll('.pager button[data-pg]').forEach(b=>b.onclick=()=>{state.pages[b.closest('.pager').dataset.s]=+b.dataset.pg;renderList()});
+  $('#view').querySelectorAll('tr[data-id] [data-a]').forEach(b=>b.onclick=()=>{const c=getClaim(b.closest('tr').dataset.id),a=b.dataset.a;
+    if(a==='view'){state.view={name:'view',id:c.id};render()}
+    else if(a==='edit')startEdit(c);
+    else if(a==='del')askDelete(c)});
+}
+
+function askDelete(c){confirmBox('Delete claim?',`<p style="margin:0">This permanently removes <b>${esc(c.claimName||c.ref)}</b> (${esc(c.ref)}) from this browser.</p>`,'Delete','danger',()=>{
+  state.claims=state.claims.filter(x=>x.id!==c.id);persist();toast('Claim deleted');state.view={name:'list'};render()})}
+
+/* ---------- editor ---------- */
+function startNew(){const S=state.settings,m=todayISO().slice(0,7),[pf,pt]=monthBounds(m);
+  state.draft={id:null,ref:'',ownerId:me().id,claimName:'',claimant:me().name,email:me().email||'',department:me().department,month:m,purpose:'',dateClaimed:todayISO(),periodFrom:pf,periodTo:pt,rate:S.rate,status:'draft',hod:null,items:[blankItem(),blankItem()],history:[],_dirty:false};
+  state.view={name:'edit'};render()}
+function startEdit(c){if(!canEdit(c))return toast('You can only edit your own draft or returned claims','err');state.draft=JSON.parse(JSON.stringify(c));state.draft._dirty=false;if(!state.draft.items.length)state.draft.items.push(blankItem());state.view={name:'edit'};state.tab=state.tab==='new'?'list':state.tab;render()}
+
+function renderEditor(){
+  const d=state.draft,S=state.settings,isNew=!d.id;
+  $('#view').innerHTML=`
+  <div class="page-h"><button class="btn" id="edBack">${ICON.back}Back</button><h1>${isNew?'New Claim':'Edit Claim'}</h1>${d.ref?`<span class="sub">${esc(d.ref)}</span>`:''}${badge(d.status)}</div>
+  ${d.status==='rejected'&&d.hod?`<div class="note warn" style="margin-bottom:18px"><b>Returned by ${esc(d.hod.name)} on ${dmy(d.hod.date)}:</b> ${esc(d.hod.remarks)}<br>Please correct and resubmit to your HOD.</div>`:''}
+  <div class="layout"><div>
+    <div class="card"><div class="card-h"><h3>Claim Details</h3><span class="sub">${esc(S.company)}</span></div><div class="card-b"><div class="grid">
+      <div class="f c2"><label>Claim Name <span class="req">*</span></label><input class="input" data-f="claimName" value="${esc(d.claimName)}" placeholder="e.g. Customer visits – October 2026"></div>
+      <div class="f"><label>Month of Claim <span class="req">*</span></label><input class="input" type="month" data-f="month" value="${esc(d.month)}"></div>
+      <div class="f"><label>Date Claimed <span class="req">*</span></label><input class="input" type="date" data-f="dateClaimed" value="${esc(d.dateClaimed)}"></div>
+      <div class="f c2"><label>Claimant's Name</label><input class="input" value="${esc(d.claimant)}" disabled title="Taken from your login"></div>
+      <div class="f"><label>Department</label><input class="input" value="${esc(d.department)}" disabled title="Approved by the HOD of this department"></div>
+      <div class="f"><label>Rate (RM / km)</label><input class="input" type="number" step="0.01" min="0" data-f="rate" value="${esc(d.rate)}"></div>
+      <div class="f c4"><label>Purpose of Claim <span class="req">*</span></label><textarea class="input" data-f="purpose" rows="2" placeholder="e.g. Customer meetings, goods collection & delivery, site visits">${esc(d.purpose)}</textarea></div>
+      <div class="f"><label>Expenses Period – From</label><input class="input" type="date" data-f="periodFrom" value="${esc(d.periodFrom)}"></div>
+      <div class="f"><label>Expenses Period – To</label><input class="input" type="date" data-f="periodTo" value="${esc(d.periodTo)}"></div>
+    </div></div></div>
+    <div class="card"><div class="card-h"><h3>Mileage &amp; Expenses</h3><span class="sub">Leave Date blank to continue the trip from the row above.</span></div>
+      <div class="tbl-wrap"><table class="items"><thead>
+        <tr><th class="grp" colspan="5">Mileage Claim</th><th class="grp" colspan="3">Receipts Required (RM)</th><th class="grp" colspan="3">Description</th></tr>
+        <tr><th style="width:130px">Date</th><th>From Location</th><th>To Location</th><th style="width:90px">Mileage (KM)</th><th style="width:88px;text-align:right">Mileage RM</th><th style="width:88px">Toll</th><th style="width:88px">Parking</th><th style="width:100px">Other Expenses</th><th style="min-width:220px">Description of Cost / Purpose of Journey</th><th style="width:120px">Receipt No.</th><th style="width:36px"></th></tr>
+      </thead><tbody id="rows"></tbody><tfoot id="foot"></tfoot></table></div>
+      <div class="row-tools"><button class="btn sm" id="addTrip">${ICON.car}Add mileage trip</button><button class="btn sm" id="addExp">${ICON.receipt}Add expense</button></div>
+    </div>
+  </div>
+  <div class="sum"><div class="card"><div class="card-h"><h3>Claim Summary</h3></div><div class="card-b" id="sumBox"></div>
+    <div class="card-b stack" style="border-top:1px solid var(--line)">
+      <button class="btn primary" id="edSubmit">${ICON.check}Submit for approval</button>
+      <button class="btn" id="edSave">Save as draft</button>
+      <p class="sub" style="margin:4px 0 0">Once submitted the claim is locked until the HOD or Approver of <b>${esc(d.department)}</b> approves or returns it.</p>
+    </div></div></div>
+  </div>`;
+  renderRows();renderTotals();
+  const v=$('#view');
+  v.querySelectorAll('[data-f]').forEach(el=>{el.addEventListener('input',()=>{const k=el.dataset.f;d[k]=el.value;d._dirty=true;el.classList.remove('invalid');
+    if(k==='month'&&el.value){const[pf,pt]=monthBounds(el.value);d.periodFrom=pf;d.periodTo=pt;v.querySelector('[data-f=periodFrom]').value=pf;v.querySelector('[data-f=periodTo]').value=pt}
+    if(k==='rate'){renderTotals();updateCalcs()}})});
+  $('#edBack').onclick=()=>go(state.tab==='new'?'list':state.tab);
+  $('#addTrip').onclick=()=>{d.items.push(blankItem());d._dirty=true;renderRows(true)};
+  $('#addExp').onclick=()=>{d.items.push(blankItem());d._dirty=true;renderRows(true,'desc')};
+  $('#edSave').onclick=()=>saveDraft(false);
+  $('#edSubmit').onclick=()=>saveDraft(true);
+}
+function renderRows(focusLast,focusKey){
+  const d=state.draft,tb=$('#rows');
+  const inp=(it,k,type,cls,ph)=>`<input ${type?`type="${type}"`:''} ${type==='number'?'step="0.01" min="0" inputmode="decimal"':''} class="${cls||''}" data-k="${k}" value="${esc(it[k])}" placeholder="${ph||''}">`;
+  tb.innerHTML=d.items.map((it,i)=>`<tr data-i="${i}">
+    <td>${inp(it,'date','date')}</td><td>${inp(it,'from','','','From')}</td><td>${inp(it,'to','','','To')}</td>
+    <td>${inp(it,'km','number','num','0')}</td><td class="calc" data-calc>${num(it.km)?fmt2(num(it.km)*num(d.rate)):''}</td>
+    <td>${inp(it,'toll','number','num','0.00')}</td><td>${inp(it,'parking','number','num','0.00')}</td><td>${inp(it,'other','number','num','0.00')}</td>
+    <td>${inp(it,'desc','','','Purpose / cost description')}</td><td>${inp(it,'receipt','','','Ref no.')}</td>
+    <td><button class="icon-btn del" data-rm title="Remove row">${ICON.x}</button></td></tr>`).join('')||`<tr><td colspan="11" class="empty">No rows yet — add a mileage trip or expense.</td></tr>`;
+  tb.querySelectorAll('input').forEach(el=>el.addEventListener('input',()=>{const i=+el.closest('tr').dataset.i,k=el.dataset.k;d.items[i][k]=el.value;d._dirty=true;
+    if(k==='km')el.closest('tr').querySelector('[data-calc]').textContent=num(el.value)?fmt2(num(el.value)*num(d.rate)):'';
+    if(['km','toll','parking','other'].includes(k))renderTotals()}));
+  tb.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{d.items.splice(+b.closest('tr').dataset.i,1);d._dirty=true;renderRows();renderTotals()});
+  if(focusLast){const last=tb.querySelector('tr:last-child input[data-k="'+(focusKey||'from')+'"]');if(last)last.focus()}
+}
+function updateCalcs(){const d=state.draft;document.querySelectorAll('#rows tr[data-i]').forEach(tr=>{const it=d.items[+tr.dataset.i];tr.querySelector('[data-calc]').textContent=num(it.km)?fmt2(num(it.km)*num(d.rate)):''})}
+function renderTotals(){const d=state.draft,t=totals(d);
+  $('#foot').innerHTML=`<tr><td colspan="3" style="text-align:right">Totals</td><td class="r" style="text-align:right">${fmtKm(t.km)}</td><td style="text-align:right">${fmt2(t.mileage)}</td><td style="text-align:right">${fmt2(t.toll)}</td><td style="text-align:right">${fmt2(t.park)}</td><td style="text-align:right">${fmt2(t.other)}</td><td colspan="3" style="text-align:right;color:var(--g700)">Total Claim: ${rm(t.total)}</td></tr>`;
+  $('#sumBox').innerHTML=summaryHTML(d,t)}
+function summaryHTML(c,t){return `
+  <div class="sum-row"><span>Total mileage</span><b>${fmtKm(t.km)} km</b></div>
+  <div class="sum-row"><span>Mileage @ RM ${fmt2(c.rate)}/km</span><b>${fmt2(t.mileage)}</b></div>
+  <div class="sum-row"><span>Toll</span><b>${fmt2(t.toll)}</b></div>
+  <div class="sum-row"><span>Parking</span><b>${fmt2(t.park)}</b></div>
+  <div class="sum-row"><span>Other expenses</span><b>${fmt2(t.other)}</b></div>
+  <div class="sum-total"><span>Total Claim</span><b>${rm(t.total)}</b></div>`}
+
+function saveDraft(submit){
+  const d=state.draft,v=$('#view');
+  d.items=d.items.filter(i=>!isBlankItem(i));
+  if(submit){
+    const bad=[];['claimName','claimant','month','dateClaimed','purpose','department'].forEach(k=>{if(!String(d[k]||'').trim()){bad.push(k);const el=v.querySelector(`[data-f=${k}]`);if(el)el.classList.add('invalid')}});
+    let msg='';
+    if(bad.length)msg='Please complete the required claim details.';
+    else if(!d.items.length)msg='Add at least one mileage trip or expense.';
+    else if(!d.items[0].date)msg='The first row needs a date.';
+    else if(totals(d).total<=0)msg='The claim total must be more than RM 0.00.';
+    else if(d.items.some(i=>[i.km,i.toll,i.parking,i.other].some(x=>num(x)<0)))msg='Amounts cannot be negative.';
+    if(msg){if(!d.items.length)d.items.push(blankItem());renderRows();renderTotals();toast(msg,'err');return}
+  }
+  if(!d.items.length)d.items.push(blankItem());
+  let c;
+  if(!d.id){c=Object.assign({},d,{id:uid(),ownerId:me().id,claimant:me().name,email:me().email||'',department:me().department,ref:nextRef(d.month),history:[],createdAt:new Date().toISOString()});addHistory(c,'created',me().name);state.claims.push(c)}
+  else{c=getClaim(d.id);if(!c||!canEdit(c)){state.draft=null;toast('This claim can no longer be edited','err');state.view={name:'list'};return render()}
+    const keep={history:c.history,ownerId:c.ownerId||me().id,claimant:c.claimant,department:c.department,status:c.status};Object.assign(c,d,keep);addHistory(c,'edited',me().name)}
+  delete c._dirty;
+  if(submit){c.status='pending';addHistory(c,'submitted',me().name)}
+  c.items=c.items.filter(i=>!isBlankItem(i));
+  persist();state.draft=null;
+  toast(submit?'Submitted for approval':'Draft saved');
+  state.tab='list';state.view={name:'view',id:c.id};render();
+  if(submit)offerEmail(c,'submitted');
+}
+
+/* ---------- view / approval ---------- */
+const ACTION_LABEL={created:'Claim created',edited:'Claim updated',submitted:'Submitted for approval',approved:'Approved',rejected:'Returned to claimant',emailed:'Email notification drafted',withdrawn:'Withdrawn to draft',reopened:'Approval revoked'};
+function renderView(c){
+  if(!c||!canSee(c)){state.view={name:'list'};return render()}
+  const t=totals(c),S=state.settings;
+  let prev='';const rows=c.items.map(i=>{const showD=i.date&&i.date!==prev;if(i.date)prev=i.date;return `<tr>
+    <td>${showD?dmy(i.date):''}</td><td>${esc(i.from)}</td><td>${esc(i.to)}</td><td class="r">${num(i.km)?fmtKm(i.km):''}</td><td class="r">${num(i.km)?fmt2(num(i.km)*num(c.rate)):''}</td>
+    <td class="r">${num(i.toll)?fmt2(i.toll):''}</td><td class="r">${num(i.parking)?fmt2(i.parking):''}</td><td class="r">${num(i.other)?fmt2(i.other):''}</td><td>${esc(i.desc)}</td><td class="sub">${esc(i.receipt)}</td></tr>`}).join('');
+  const hodPanel=canApprove(c)?`
+    <div class="card hod-box no-print"><div class="card-h"><h3>${isApprover()?'Approver':'HOD'} Decision</h3><span class="sub">Approval is final and locks the claim.</span></div><div class="card-b"><div class="grid">
+      <div class="f c2"><label>${isApprover()?'Approver':'Head of Department'} (${esc(c.department)})</label><input class="input" value="${esc(me().name)}" disabled></div>
+      <div class="f c2"><label>Decision date</label><input class="input" type="date" id="hodDate" value="${todayISO()}"></div>
+      <div class="f c4"><label>Remarks <span class="sub">(required when returning a claim)</span></label><textarea class="input" id="hodRem" rows="2" placeholder="Optional for approval"></textarea></div>
+    </div><div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><button class="btn primary" id="hodApprove">${ICON.check}Approve claim</button><button class="btn danger" id="hodReject">${ICON.x}Return to claimant</button></div></div></div>`
+    :c.status==='pending'?`<div class="note no-print" style="margin-bottom:18px">${coversDept(me(),c.department)&&ownsClaim(c)?'You cannot approve your own claim. It must be approved by another HOD or Approver of '+esc(c.department)+'.':'Waiting for approval by '+(approversFor(c).map(u=>'<b>'+esc(u.name)+'</b>').join(' or ')||'the HOD / Approver of <b>'+esc(c.department)+'</b> (none assigned yet – ask your Administrator)')+'.'}
+      ${ownsClaim(c)&&approversFor(c).some(u=>u.email)?` <button class="btn sm" id="vNotify" style="margin-left:6px">✉ Email approver</button>`:''}</div>`:'';
+  const decision=c.hod&&(c.status==='approved'||c.status==='rejected')?`<div style="margin-top:14px"><span class="stamp ${c.status}">${c.status==='approved'?ICON.check:ICON.x}${c.status==='approved'?'Approved':'Returned'}</span>
+      <div style="margin-top:8px"><b>${esc(c.hod.name)}</b><div class="sub">${dmy(c.hod.date)}</div>${c.hod.remarks?`<div class="note" style="margin-top:8px">${esc(c.hod.remarks)}</div>`:''}
+      ${coversDept(me(),c.department)&&!ownsClaim(c)&&(c.email||(ownerOf(c)||{}).email)?`<button class="btn sm no-print" id="vNotifyOwner" style="margin-top:10px">✉ Email claimant</button>`:''}</div></div>`:
+      c.status==='pending'?`<div style="margin-top:14px"><span class="stamp pending">Awaiting HOD</span></div>`:`<div style="margin-top:14px"><span class="stamp draft">Not submitted</span></div>`;
+  $('#view').innerHTML=`
+  <div class="page-h"><button class="btn no-print" id="vBack">${ICON.back}Back</button><h1>${esc(c.claimName||'(untitled claim)')}</h1>${badge(c.status)}<span class="spacer"></span>
+    <div class="no-print" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" id="vXls">${ICON.xls}Export Excel</button><button class="btn" id="vPdf">${ICON.pdf}Export PDF</button>
+      ${ownsClaim(c)?`<button class="btn" id="vDup" title="Copy rows into a new draft">${ICON.copy}Duplicate</button>`:''}
+      ${canEdit(c)?`<button class="btn" id="vEdit">${ICON.pen}Edit</button><button class="btn primary" id="vSubmit">${ICON.check}Submit for approval</button>`:''}
+      ${ownsClaim(c)&&c.status==='pending'?`<button class="btn" id="vWithdraw">Withdraw</button>`:''}
+      ${canRevoke(c)?`<button class="btn danger" id="vReopen">Revoke approval</button>`:''}
+      ${canDelete(c)?`<button class="btn danger" id="vDel">${ICON.trash}</button>`:''}
+    </div></div>
+  ${hodPanel}
+  ${c.status==='rejected'&&c.hod&&ownsClaim(c)?`<div class="note warn" style="margin-bottom:18px"><b>Returned by ${esc(c.hod.name)}:</b> ${esc(c.hod.remarks)} — edit and resubmit.</div>`:''}
+  <div class="layout"><div>
+    <div class="card"><div class="card-h"><h3>Claim Details</h3><span class="sub">${esc(c.ref)} · ${esc(S.company)}</span></div><div class="card-b"><div class="dl">
+      <div><span>Claimant's Name</span><b>${esc(c.claimant)}</b></div><div><span>Department</span><b>${esc(c.department)}</b></div>
+      <div><span>Month of Claim</span><b>${esc(monthLabel(c.month))}</b></div><div><span>Date Claimed</span><b>${dmy(c.dateClaimed)}</b></div>
+      <div><span>Expenses Period</span><b>${dmy(c.periodFrom)} – ${dmy(c.periodTo)}</b></div><div><span>Rate</span><b>RM ${fmt2(c.rate)} / km</b></div>
+      <div><span>Email</span><b>${esc(c.email||(ownerOf(c)||{}).email||'—')}</b></div>
+      <div class="wide"><span>Purpose of Claim</span><b style="font-weight:500">${esc(c.purpose)}</b></div>
+    </div></div></div>
+    <div class="card"><div class="card-h"><h3>Mileage &amp; Expenses</h3><span class="sub">${c.items.length} line${c.items.length===1?'':'s'}</span></div>
+      <div class="tbl-wrap"><table class="items ro"><thead>
+        <tr><th class="grp" colspan="5">Mileage Claim</th><th class="grp" colspan="3">Receipts Required (RM)</th><th class="grp" colspan="2">Description</th></tr>
+        <tr><th>Date</th><th>From Location</th><th>To Location</th><th style="text-align:right">KM</th><th style="text-align:right">Mileage RM</th><th style="text-align:right">Toll</th><th style="text-align:right">Parking</th><th style="text-align:right">Other</th><th>Description of Cost / Purpose of Journey</th><th>Receipt No.</th></tr>
+      </thead><tbody>${rows}</tbody><tfoot><tr><td colspan="3" style="text-align:right">Totals</td><td style="text-align:right">${fmtKm(t.km)}</td><td style="text-align:right">${fmt2(t.mileage)}</td><td style="text-align:right">${fmt2(t.toll)}</td><td style="text-align:right">${fmt2(t.park)}</td><td style="text-align:right">${fmt2(t.other)}</td><td colspan="2" style="text-align:right;color:var(--g700)">Total Claim: ${rm(t.total)}</td></tr></tfoot></table></div></div>
+  </div>
+  <div class="sum">
+    <div class="card"><div class="card-h"><h3>Claim Summary</h3></div><div class="card-b">${summaryHTML(c,t)}</div></div>
+    <div class="card"><div class="card-h"><h3>Approval</h3></div><div class="card-b" style="padding-top:4px">${decision}</div></div>
+    <div class="card"><div class="card-h"><h3>Activity</h3></div><div class="card-b"><ul class="timeline">${c.history.slice().reverse().map(h=>`<li class="${h.action==='rejected'?'rej':''}"><b>${ACTION_LABEL[h.action]||esc(h.action)}</b><div class="sub">${esc(h.by)} · ${dtStamp(h.at)}</div>${h.note?`<div class="sub">“${esc(h.note)}”</div>`:''}</li>`).join('')||'<li class="sub">No activity yet</li>'}</ul></div></div>
+  </div></div>`;
+  const on=(id,fn)=>{const el=$('#'+id);if(el)el.onclick=fn};
+  on('vBack',()=>{state.view={name:'list'};render()});
+  on('vXls',()=>exportExcel(c));on('vPdf',()=>exportPDF(c));
+  on('vEdit',()=>startEdit(c));
+  on('vDel',()=>askDelete(c));
+  on('vSubmit',()=>{const tt=totals(c);if(!c.claimName||!c.purpose||!c.month||!c.items.length||tt.total<=0){toast('Complete the claim before submitting','err');return startEdit(c)}
+    if(!canEdit(c))return;c.status='pending';addHistory(c,'submitted',me().name);persist();toast('Submitted for approval');render();offerEmail(c,'submitted')});
+  on('vWithdraw',()=>confirmBox('Withdraw claim?','<p style="margin:0">The claim returns to Draft so you can edit it. You will need to resubmit it to your HOD.</p>','Withdraw',false,()=>{if(!(ownsClaim(c)&&c.status==='pending'))return;c.status='draft';addHistory(c,'withdrawn',me().name);persist();render()}));
+  on('vReopen',()=>confirmBox('Revoke approval?','<p style="margin:0">The claim goes back to <b>Pending HOD</b> for a new decision.</p>','Revoke',true,()=>{if(!canRevoke(c))return;c.status='pending';addHistory(c,'reopened',me().name);c.hod=null;persist();render()}));
+  on('vDup',()=>{const m=todayISO().slice(0,7),[pf,pt]=monthBounds(m);state.draft=Object.assign(JSON.parse(JSON.stringify(c)),{id:null,ref:'',ownerId:me().id,claimant:me().name,email:me().email||'',department:me().department,status:'draft',hod:null,history:[],month:m,periodFrom:pf,periodTo:pt,dateClaimed:todayISO(),claimName:c.claimName+' (copy)',_dirty:true});
+    state.draft.items.forEach(i=>i.id=uid());state.view={name:'edit'};render();toast('Copied into a new draft – update dates before submitting')});
+  on('vNotify',()=>emailNotice(c,'submitted'));on('vNotifyOwner',()=>emailNotice(c,c.status));
+  on('hodApprove',()=>hodDecide(c,'approved'));on('hodReject',()=>hodDecide(c,'rejected'));
+}
+/* ---------- email notifications (opens a pre-filled draft in the user's mail app) ---------- */
+function noticeRecipients(c,kind){
+  if(kind==='submitted')return approversFor(c).filter(u=>u.email).map(u=>({name:u.name,email:u.email}));
+  const em=c.email||(ownerOf(c)||{}).email;return em?[{name:c.claimant,email:em}]:[];
+}
+function emailNotice(c,kind){
+  const t=totals(c),S=state.settings,rcpt=noticeRecipients(c,kind);
+  if(!rcpt.length)return toast('No email address on file for the recipient – ask your Administrator to add one','err');
+  let subject,intro;
+  if(kind==='submitted'){subject=`[EcoClaim] Approval needed: ${c.claimName} – ${c.claimant} (${rm(t.total)})`;
+    intro=`Dear ${rcpt.map(r=>r.name).join(' / ')},\n\nA mileage & expenses claim has been submitted for your approval.`}
+  else{const ok=kind==='approved';subject=`[EcoClaim] Claim ${ok?'APPROVED':'RETURNED'}: ${c.claimName} (${rm(t.total)})`;
+    intro=`Dear ${c.claimant},\n\nYour mileage & expenses claim has been ${ok?'APPROVED':'RETURNED for correction'} by ${c.hod.name} on ${dmy(c.hod.date)}.`+(c.hod.remarks?`\n\nRemarks: ${c.hod.remarks}`:'')}
+  const body=`${intro}\n\nClaim ref: ${c.ref}\nClaim name: ${c.claimName}\nClaimant: ${c.claimant} (${c.department})\nMonth of claim: ${monthLabel(c.month)}\nPurpose: ${c.purpose}\nTotal mileage: ${fmtKm(t.km)} km\nTotal claim: ${rm(t.total)}\n\n${kind==='submitted'?'Please sign in to EcoClaim to review and approve.':kind==='rejected'?'Please sign in to EcoClaim, correct the claim and resubmit.':'Sign in to EcoClaim for details.'}\n\nRegards,\n${me().name}\n${S.company}`;
+  addHistory(c,'emailed',me().name,'To: '+rcpt.map(r=>r.email).join(', '));persist();
+  window.location.href=`mailto:${rcpt.map(r=>r.email).join(',')}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  setTimeout(()=>{if(state.view.name==='view'&&state.view.id===c.id)render()},300);
+}
+function offerEmail(c,kind){
+  if(state.settings.notify===false)return;
+  const rcpt=noticeRecipients(c,kind);if(!rcpt.length)return;
+  const what=kind==='submitted'?'Let the approver know this claim is waiting for them.':`Let ${esc(c.claimant)} know the claim was ${kind==='approved'?'approved':'returned'}.`;
+  modal(`<div class="card-h"><h3>✉ Send email notification?</h3></div><div class="card-b stack"><p style="margin:0">${what}</p>
+    <div class="note">To: ${rcpt.map(r=>`<b>${esc(r.name)}</b> &lt;${esc(r.email)}&gt;`).join(', ')}</div>
+    <p class="sub" style="margin:0">Opens a pre-filled email in Outlook / your mail app. Check it, then click Send.</p></div>
+    <div class="foot"><button class="btn" data-close>Skip</button><button class="btn primary" id="emGo">Open email draft</button></div>`);
+  $('#emGo').onclick=()=>{closeModal();emailNotice(c,kind)};
+}
+function hodDecide(c,decision){
+  if(!canApprove(c))return toast('Only the HOD or Approver of '+c.department+' can approve this claim','err');
+  const name=me().name,date=$('#hodDate').value||todayISO(),rem=$('#hodRem').value.trim();
+  if(decision==='rejected'&&!rem){$('#hodRem').classList.add('invalid');return toast('Add remarks so the claimant knows what to fix','err')}
+  const t=totals(c);
+  confirmBox(decision==='approved'?'Approve this claim?':'Return this claim?',
+    `<p style="margin:0">${decision==='approved'?'Approve':'Return'} <b>${esc(c.claimName)}</b> by ${esc(c.claimant)} for <b>${rm(t.total)}</b>?</p>`,
+    decision==='approved'?'Approve':'Return to claimant',decision!=='approved',()=>{
+      if(!canApprove(c))return;
+      c.status=decision;c.hod={name,userId:me().id,role:me().role,email:me().email||'',date,remarks:rem};addHistory(c,decision,name,rem);
+      persist();toast(decision==='approved'?'Claim approved ✓':'Claim returned to claimant');render();offerEmail(c,decision)});
+}
+
+/* ---------- settings ---------- */
+function openSettings(){if(!isAdmin())return;const S=state.settings;
+  modal(`<div class="card-h"><h3>Admin Configurations</h3></div><div class="card-b"><div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="f c4"><label>Company name</label><input class="input" id="sCo" value="${esc(S.company)}"></div>
+    <div class="f c4"><label>Default mileage rate (RM/km)</label><input class="input" type="number" step="0.01" min="0" id="sRate" value="${esc(S.rate)}"></div>
+    <div class="f c4"><label>Departments <span class="sub">(comma separated)</span></label><input class="input" id="sDept" value="${esc(S.departments.join(', '))}"></div>
+    <div class="f c4"><label style="display:flex;gap:8px;align-items:center;font-weight:500"><input type="checkbox" id="sNotify" ${S.notify!==false?'checked':''}>Offer to email the approver / claimant after a claim is submitted, approved or returned</label></div>
+    <div class="f c4"><div class="note">Claims and user accounts are saved in this browser on this computer. Use Backup to move them to another PC or keep a copy.</div></div>
+    ${S.demo&&state.users.some(u=>u.demo)?`<div class="f c4"><div class="note warn"><b>Demo mode is on.</b> The demo accounts share a public password. Remove them before real use – this also deletes the demo claims and signs you out if you're using a demo account.</div><button class="btn sm danger" id="sEndDemo" style="align-self:flex-start;margin-top:6px">Remove demo accounts</button></div>`:''}
+    <div class="f c4" style="flex-direction:row;gap:8px;flex-wrap:wrap"><button class="btn sm" id="sBak">Backup claims (.json)</button><label class="btn sm" style="font-weight:500">Restore backup<input type="file" accept=".json,application/json" id="sRes" hidden></label></div>
+  </div></div><div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="sSave">Save</button></div>`);
+  $('#sSave').onclick=()=>{S.company=$('#sCo').value.trim()||DEFAULT_SETTINGS.company;S.rate=num($('#sRate').value);
+    const depts=$('#sDept').value.split(',').map(x=>x.trim()).filter(Boolean),inUse=[...new Set(state.users.map(u=>u.department))].filter(d=>!depts.includes(d));
+    if(inUse.length)return toast(`Can't remove ${inUse.join(', ')} – users are still assigned to it`,'err');
+    S.departments=depts.length?depts:DEFAULT_SETTINGS.departments.slice();S.notify=$('#sNotify').checked;
+    state.users.forEach(u=>{if(u.approveDepts)u.approveDepts=u.approveDepts.filter(d=>S.departments.includes(d))});
+    persist();closeModal();toast('Settings saved');render()};
+  const ed=$('#sEndDemo');if(ed)ed.onclick=()=>{const realAdmin=state.users.some(u=>!u.demo&&u.role==='admin'&&u.active!==false);
+    confirmBox('Remove demo accounts?',`<p style="margin:0">All demo users and demo claims will be deleted.${realAdmin?'':' There is no real Administrator yet, so you will go back to the setup screen to create one.'}</p>`,'Remove demo accounts',true,endDemo)};
+  $('#sBak').onclick=()=>download(new Blob([JSON.stringify({settings:S,users:state.users,claims:state.claims},null,2)],{type:'application/json'}),`EcoClaim backup ${todayISO()}.json`);
+  $('#sRes').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const data=JSON.parse(r.result);if(!Array.isArray(data.claims))throw 0;
+      const hasUsers=Array.isArray(data.users)&&data.users.some(u=>u.role==='admin'&&u.active!==false);
+      confirmBox('Restore backup?',`<p style="margin:0">Replace the ${state.claims.length} claim(s) in this browser with ${data.claims.length} claim(s) from the backup${hasUsers?` and the user list with ${data.users.length} user(s)`:''}?${hasUsers?' You will be signed out if your account is not in the backup.':''}</p>`,'Restore',true,()=>{
+        state.claims=data.claims;if(data.settings)Object.assign(state.settings,data.settings);if(hasUsers)state.users=data.users;persist();toast('Backup restored');
+        const still=state.users.find(u=>u.id===me().id&&u.active!==false);if(!still)return logout('Backup restored. Please sign in again.');state.user=still;state.view={name:'list'};render()})}
+    catch(_){toast('That file is not a valid EcoClaim backup','err')}};r.readAsText(f)};
+}
+
+/* ---------- users (admin) ---------- */
+function renderUsers(){
+  if(!isAdmin()){state.view={name:'list'};return render()}
+  const S=state.settings,list=state.users.slice().sort((a,b)=>a.department.localeCompare(b.department)||a.name.localeCompare(b.name));
+  const noHod=S.departments.filter(d=>state.users.some(u=>u.department===d&&u.active!==false)&&!state.users.some(u=>u.active!==false&&coversDept(u,d)));
+  const noEmail=state.users.filter(u=>u.active!==false&&!u.email);
+  $('#view').innerHTML=`<div class="page-h"><h1>Users</h1><span class="sub">${list.length} account${list.length===1?'':'s'}</span><span class="spacer"></span><button class="btn primary" id="uAdd">${ICON.plus}Add user</button></div>
+  ${noHod.length?`<div class="note warn" style="margin-bottom:12px"><b>No HOD or Approver for:</b> ${noHod.map(esc).join(', ')}. Claims from these departments cannot be approved until you add an HOD or assign an Approver.</div>`:''}
+  ${noEmail.length?`<div class="note" style="margin-bottom:18px"><b>Missing email:</b> ${noEmail.map(u=>esc(u.name)).join(', ')}. Add one so they can sign in by email and receive notifications.</div>`:''}
+  <div class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Username / Email</th><th>Department</th><th>Role</th><th>Status</th><th>Last sign-in</th><th></th></tr></thead><tbody>
+  ${list.map(u=>`<tr data-id="${u.id}"><td><div style="display:flex;gap:10px;align-items:center"><div class="avatar" style="width:30px;height:30px;font-size:11.5px">${esc(initials(u.name))}</div><span class="nm">${esc(u.name)}</span>${u.id===me().id?'<span class="sub">(you)</span>':''}</div></td>
+    <td><div class="muted">@${esc(u.username)}</div><div class="sub">${u.email?esc(u.email):'<span style="color:var(--red)">no email</span>'}</div></td><td>${esc(u.department)}</td>
+    <td>${roleChip(u.role)}${u.role==='approver'?`<div class="sub" style="margin-top:3px">Approves: ${esc((u.approveDepts||[]).join(', ')||'— none —')}</div>`:''}</td>
+    <td>${u.active===false?'<span class="chip off">Disabled</span>':u.mustChange?'<span class="chip hod">Temp password</span>':'<span class="chip staff">Active</span>'}</td>
+    <td class="sub">${u.lastLogin?dtStamp(u.lastLogin):'Never'}</td>
+    <td><div class="acts"><button class="btn sm" data-a="edit">Edit</button><button class="btn sm" data-a="pw">Reset password</button>${u.id!==me().id?`<button class="btn sm ${u.active===false?'':'danger'}" data-a="toggle">${u.active===false?'Enable':'Disable'}</button>`:''}</div></td></tr>`).join('')}
+  </tbody></table></div></div>
+  <div class="note">Sign-in needs <b>username or email, password, department and role</b> to all match the account. Only an <b>HOD</b> (for their own department) or an <b>Approver</b> (for the departments assigned to them) can approve – never their own claim.</div>`;
+  $('#uAdd').onclick=()=>userForm(null);
+  $('#view').querySelectorAll('tr[data-id] [data-a]').forEach(b=>b.onclick=()=>{const u=state.users.find(x=>x.id===b.closest('tr').dataset.id),a=b.dataset.a;
+    if(a==='edit')userForm(u);
+    else if(a==='pw')resetPw(u);
+    else if(a==='toggle'){if(u.active!==false&&u.role==='admin'&&activeAdmins()<=1)return toast('Keep at least one active Administrator','err');
+      u.active=u.active===false;persist();toast(`${u.name} ${u.active?'enabled':'disabled'}`);renderUsers()}});
+}
+const activeAdmins=()=>state.users.filter(u=>u.role==='admin'&&u.active!==false).length;
+function userForm(u){
+  const S=state.settings,isNew=!u;
+  modal(`<div class="card-h"><h3>${isNew?'Add user':'Edit user'}</h3></div><div class="card-b"><div class="grid" style="grid-template-columns:1fr 1fr">
+    <div class="f c4"><label>Full name <span class="req">*</span></label><input class="input" id="ufName" value="${esc(u?u.name:'')}" placeholder="As it should appear on claims"></div>
+    <div class="f"><label>Username <span class="req">*</span></label><input class="input" id="ufUser" value="${esc(u?u.username:'')}" placeholder="e.g. timothy.lim" autocomplete="off"></div>
+    <div class="f"><label>Email <span class="req">*</span></label><input class="input" type="email" id="ufEmail" value="${esc(u&&u.email||'')}" placeholder="name@company.com" autocomplete="off"></div>
+    <div class="f"><label>Department <span class="req">*</span></label><select class="input" id="ufDept">${S.departments.map(d=>`<option ${u&&u.department===d?'selected':''}>${esc(d)}</option>`).join('')}</select></div>
+    <div class="f"><label>Role <span class="req">*</span></label><select class="input" id="ufRole">${Object.entries(ROLES).map(([k,v])=>`<option value="${k}" ${u&&u.role===k?'selected':''}>${v.label}</option>`).join('')}</select></div>
+    <div class="f c4" id="ufApvWrap"><label>Can approve claims from <span class="req">*</span></label><div class="checks">${S.departments.map(d=>`<label><input type="checkbox" value="${esc(d)}" ${u&&(u.approveDepts||[]).includes(d)?'checked':''}>${esc(d)}</label>`).join('')}</div><span class="sub">An Approver can approve claims from these departments (but never their own claim).</span></div>
+    ${isNew?`<div class="f c4"><label>Temporary password <span class="req">*</span></label><input class="input" id="ufPw" autocomplete="new-password"><span class="sub">${pwRule} The user must change it at first sign-in.</span></div>`:''}
+  </div></div><div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="ufOk">${isNew?'Create user':'Save'}</button></div>`);
+  const syncApv=()=>{$('#ufApvWrap').hidden=$('#ufRole').value!=='approver'};syncApv();$('#ufRole').onchange=syncApv;
+  $('#ufOk').onclick=async()=>{
+    const name=$('#ufName').value.trim(),un=$('#ufUser').value.trim().toLowerCase(),email=$('#ufEmail').value.trim().toLowerCase(),dept=$('#ufDept').value,role=$('#ufRole').value;
+    const approveDepts=role==='approver'?[...document.querySelectorAll('#ufApvWrap input:checked')].map(x=>x.value):[];
+    if(!name)return toast('Enter the full name','err');
+    if(!/^[a-z0-9._-]{3,30}$/.test(un))return toast('Username: 3–30 letters, numbers, dot, dash or underscore','err');
+    if(!emailOk(email))return toast('Enter a valid email address','err');
+    if(state.users.some(x=>x.username===un&&(!u||x.id!==u.id)))return toast('That username is already taken','err');
+    if(state.users.some(x=>(x.email===email||x.username===email)&&(!u||x.id!==u.id)))return toast('That email is already used by another user','err');
+    if(role==='approver'&&!approveDepts.length)return toast('Tick at least one department this Approver can approve','err');
+    if(u&&u.role==='admin'&&role!=='admin'&&u.active!==false&&activeAdmins()<=1)return toast('Keep at least one active Administrator','err');
+    if(isNew){const pw=$('#ufPw').value;if(!pwOk(pw))return toast(pwRule,'err');
+      const nu={id:uid(),name,username:un,email,department:dept,role,approveDepts,active:true,mustChange:true,createdAt:new Date().toISOString()};await setPassword(nu,pw);state.users.push(nu)}
+    else{const oldName=u.name;Object.assign(u,{name,username:un,email,department:dept,role,approveDepts});
+      state.claims.forEach(c=>{if(c.ownerId===u.id){if(c.claimant===oldName)c.claimant=name;if(c.status!=='approved')c.email=email}});
+      if(u.id===me().id)state.user=u}
+    persist();closeModal();toast(isNew?`User ${name} created`:'User updated');render()};
+}
+function resetPw(u){
+  modal(`<div class="card-h"><h3>Reset password – ${esc(u.name)}</h3></div><div class="card-b stack">
+    <div class="f"><label>New temporary password</label><input class="input" id="rpPw" autocomplete="new-password"><span class="sub">${pwRule} ${u.id===me().id?'':'They must change it at next sign-in.'}</span></div></div>
+    <div class="foot"><button class="btn" data-close>Cancel</button><button class="btn primary" id="rpOk">Reset password</button></div>`);
+  $('#rpOk').onclick=async()=>{const pw=$('#rpPw').value;if(!pwOk(pw))return toast(pwRule,'err');await setPassword(u,pw);u.mustChange=u.id!==me().id;
+    const locks=load(LS_LOCK,{});delete locks[u.username];save(LS_LOCK,locks);persist();closeModal();toast('Password reset');renderUsers()};
+}
+
+/* ---------- exports ---------- */
+function download(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500)}
+const XG='FF2F9E5B',XGD='FF14402A',XGL='FFE3F4E8',XGXL='FFF2FAF4',XLINE='FFC6E8D0';
+const xBorder={top:{style:'thin',color:{argb:XLINE}},left:{style:'thin',color:{argb:XLINE}},bottom:{style:'thin',color:{argb:XLINE}},right:{style:'thin',color:{argb:XLINE}}};
+const xFill=argb=>({type:'pattern',pattern:'solid',fgColor:{argb}});
+const toXDate=iso=>{if(!iso)return null;const[y,m,d]=iso.split('-').map(Number);return new Date(Date.UTC(y,m-1,d))};
+
+async function exportExcel(c){
+  if(!window.ExcelJS)return toast('Excel export needs an internet connection to load – please reconnect and retry','err');
+  const S=state.settings,t=totals(c),wb=new ExcelJS.Workbook();wb.creator=c.claimant;wb.created=new Date();
+  const ws=wb.addWorksheet('Claim',{views:[{showGridLines:false}],pageSetup:{paperSize:9,orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,margins:{left:.4,right:.4,top:.5,bottom:.5,header:.3,footer:.3}}});
+  ws.columns=[{width:13},{width:26},{width:26},{width:13},{width:11},{width:11},{width:15},{width:52},{width:18}];
+  ws.mergeCells('A1:I1');Object.assign(ws.getCell('A1'),{value:S.company,font:{bold:true,size:16,color:{argb:XGD}}});ws.getRow(1).height=24;
+  ws.mergeCells('A2:I2');Object.assign(ws.getCell('A2'),{value:'MILEAGE AND EXPENSES CLAIM FORM',font:{bold:true,size:13,color:{argb:'FFFFFFFF'}},fill:xFill(XG),alignment:{horizontal:'center',vertical:'middle'}});ws.getRow(2).height=24;
+  const info=[["Claim Name:",c.claimName,"Claim Ref:",c.ref],["Claimant's Name:",c.claimant,"Department:",c.department],["Month of Claim:",monthLabel(c.month),"Expenses Period:",`${dmy(c.periodFrom)} – ${dmy(c.periodTo)}`],["Date Claimed:",dmy(c.dateClaimed),"Rate (RM/km):",num(c.rate)],["Status:",STATUS[c.status].label,"Email:",c.email||(ownerOf(c)||{}).email||""]];
+  let r=4;const rateCell='G7';
+  info.forEach(row=>{ws.getCell('A'+r).value=row[0];ws.getCell('A'+r).font={bold:true,color:{argb:XGD}};ws.mergeCells(`B${r}:D${r}`);ws.getCell('B'+r).value=row[1];
+    ws.getCell('F'+r).value=row[2];ws.getCell('F'+r).font={bold:true,color:{argb:XGD}};ws.mergeCells(`G${r}:I${r}`);ws.getCell('G'+r).value=row[3];ws.getCell('G'+r).alignment={horizontal:'left'};r++});
+  ws.getCell(rateCell).numFmt='0.00';
+  ws.getCell('A9').value='Purpose of Claim:';ws.getCell('A9').font={bold:true,color:{argb:XGD}};ws.mergeCells('B9:I9');
+  Object.assign(ws.getCell('B9'),{value:c.purpose,alignment:{wrapText:true,vertical:'top'}});ws.getRow(9).height=Math.max(18,Math.ceil((c.purpose||'').length/140)*16);
+  ws.mergeCells('A11:D11');ws.mergeCells('E11:G11');ws.mergeCells('H11:I11');
+  [['A11','Mileage Claim'],['E11','Receipts Required (RM)'],['H11','Description']].forEach(([a,v])=>Object.assign(ws.getCell(a),{value:v,font:{bold:true,color:{argb:XGD}},fill:xFill(XGL),alignment:{horizontal:'center'}}));
+  ['A','B','C','D','E','F','G','H','I'].forEach(col=>{ws.getCell(col+'11').border=xBorder});
+  const hdr=['Date','From Location','To Location','Mileage (KM)','Toll','Parking','Other Expenses','Description of cost / Purpose of Journey','Receipt No.'];
+  const hr=ws.getRow(12);hdr.forEach((h,i)=>{const cell=hr.getCell(i+1);cell.value=h;cell.font={bold:true,color:{argb:'FFFFFFFF'}};cell.fill=xFill(XG);cell.border=xBorder;cell.alignment={vertical:'middle',horizontal:i>=3&&i<=6?'right':'left',wrapText:true}});hr.height=20;
+  const first=13;let last=first-1;
+  (c.items.length?c.items:[blankItem()]).forEach((it,idx)=>{last=first+idx;const row=ws.getRow(last);
+    row.values=[toXDate(it.date),it.from||null,it.to||null,num(it.km)||null,num(it.toll)||null,num(it.parking)||null,num(it.other)||null,it.desc||null,it.receipt||null];
+    row.getCell(1).numFmt='dd/mm/yyyy';row.getCell(4).numFmt='#,##0.0#';[5,6,7].forEach(k=>row.getCell(k).numFmt='#,##0.00');row.getCell(8).alignment={wrapText:true,vertical:'top'};
+    for(let k=1;k<=9;k++){row.getCell(k).border=xBorder;if(idx%2)row.getCell(k).fill=xFill(XGXL)}});
+  r=last+2;
+  ws.mergeCells(`A${r}:C${r}`);ws.getCell('A'+r).value='Total Mileage (KM)';ws.getCell('A'+r).font={bold:true};
+  Object.assign(ws.getCell('D'+r),{value:{formula:`SUM(D${first}:D${last})`,result:t.km},numFmt:'#,##0.0#',font:{bold:true}});
+  const s=r+1;ws.mergeCells(`A${s}:C${s}`);ws.getCell('A'+s).value='Subtotal (RM)';
+  Object.assign(ws.getCell('D'+s),{value:{formula:`ROUND(D${r}*${rateCell},2)`,result:t.mileage}});
+  [['E',t.toll],['F',t.park],['G',t.other]].forEach(([col,res])=>ws.getCell(col+s).value={formula:`SUM(${col}${first}:${col}${last})`,result:res});
+  ws.getCell('H'+s).value='Total Claim (RM)';ws.getCell('H'+s).alignment={horizontal:'right'};
+  ws.getCell('I'+s).value={formula:`SUM(D${s}:G${s})`,result:t.total};
+  for(let k=1;k<=9;k++){const cell=ws.getRow(s).getCell(k);cell.fill=xFill(XGL);cell.font={bold:true,color:{argb:XGD}};cell.border=xBorder;if(k>=4&&k!==8)cell.numFmt='#,##0.00'}
+  ws.getCell('I'+s).font={bold:true,size:12,color:{argb:XGD}};ws.getRow(s).height=20;
+  const g=s+3;
+  ws.getCell('A'+g).value='Prepared by :';ws.getCell('F'+g).value=c.hod&&c.hod.role==='approver'?'Approved by (Approver) :':'Approved by (HOD) :';[`A${g}`,`F${g}`].forEach(a=>ws.getCell(a).font={bold:true,color:{argb:XGD}});
+  if(c.status==='approved'&&c.hod){ws.getCell('G'+(g+2)).value='APPROVED';ws.getCell('G'+(g+2)).font={bold:true,color:{argb:XG},size:12}}
+  ws.getCell('B'+(g+2)).border={bottom:{style:'thin'}};ws.getCell('C'+(g+2)).border={bottom:{style:'thin'}};ws.getCell('H'+(g+2)).border={bottom:{style:'thin'}};
+  ws.getCell('A'+(g+3)).value='Name :';ws.getCell('B'+(g+3)).value=c.claimant;
+  ws.getCell('A'+(g+4)).value='Date :';ws.getCell('B'+(g+4)).value=dmy(c.dateClaimed);
+  const ok=c.hod&&(c.status==='approved'||c.status==='rejected');
+  ws.getCell('F'+(g+3)).value='Name :';ws.getCell('G'+(g+3)).value=ok?c.hod.name:'';
+  ws.getCell('F'+(g+4)).value='Date :';ws.getCell('G'+(g+4)).value=ok?dmy(c.hod.date):'';
+  ws.getCell('F'+(g+5)).value='Remarks :';ws.mergeCells(`G${g+5}:I${g+5}`);ws.getCell('G'+(g+5)).value=ok?(c.hod.remarks||(c.status==='approved'?'Approved':'')):'';
+  ws.getCell('F'+(g+6)).value='Status :';ws.getCell('G'+(g+6)).value=STATUS[c.status].label;ws.getCell('G'+(g+6)).font={bold:true,color:{argb:c.status==='approved'?XG:c.status==='rejected'?'FFC0392B':'FFB7791F'}};
+  ws.pageSetup.printArea=`A1:I${g+6}`;
+  const buf=await wb.xlsx.writeBuffer();
+  download(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),fileBase(c)+'.xlsx');toast('Excel file downloaded');
+}
+
+async function exportListExcel(list){
+  if(!window.ExcelJS)return toast('Excel export needs an internet connection to load – please reconnect and retry','err');
+  if(!list.length)return toast('No claims to export','err');
+  const wb=new ExcelJS.Workbook(),ws=wb.addWorksheet('Claims',{views:[{state:'frozen',ySplit:3,showGridLines:false}]});
+  ws.columns=[{width:16},{width:36},{width:20},{width:14},{width:16},{width:44},{width:12},{width:14},{width:12},{width:12},{width:14},{width:15},{width:14},{width:20},{width:13}];
+  ws.mergeCells('A1:O1');Object.assign(ws.getCell('A1'),{value:`${state.settings.company} – Mileage & Expenses Claims (exported ${dmy(todayISO())})`,font:{bold:true,size:14,color:{argb:XGD}}});
+  const h=['Claim Ref','Claim Name','Claimant','Department','Month of Claim','Purpose of Claim','Total KM','Mileage (RM)','Toll (RM)','Parking (RM)','Other (RM)','Total Claim (RM)','Status','HOD','Decision Date'];
+  const hr=ws.getRow(3);h.forEach((v,i)=>{const c=hr.getCell(i+1);c.value=v;c.font={bold:true,color:{argb:'FFFFFFFF'}};c.fill=xFill(XG);c.border=xBorder});
+  list.forEach((c,i)=>{const t=totals(c),row=ws.getRow(4+i),ok=c.hod&&(c.status==='approved'||c.status==='rejected');
+    row.values=[c.ref,c.claimName,c.claimant,c.department,monthLabel(c.month),c.purpose,t.km,t.mileage,t.toll,t.park,t.other,t.total,STATUS[c.status].label,ok?c.hod.name:'',ok?dmy(c.hod.date):''];
+    for(let k=7;k<=12;k++)row.getCell(k).numFmt=k===7?'#,##0.0#':'#,##0.00';for(let k=1;k<=15;k++){row.getCell(k).border=xBorder;if(i%2)row.getCell(k).fill=xFill(XGXL)}});
+  const tr=ws.getRow(4+list.length),L=3+list.length;tr.getCell(1).value='TOTAL';
+  for(let k=7;k<=12;k++){const col=String.fromCharCode(64+k);tr.getCell(k).value={formula:`SUM(${col}4:${col}${L})`};tr.getCell(k).numFmt=k===7?'#,##0.0#':'#,##0.00'}
+  for(let k=1;k<=15;k++){tr.getCell(k).font={bold:true,color:{argb:XGD}};tr.getCell(k).fill=xFill(XGL);tr.getCell(k).border=xBorder}
+  ws.autoFilter={from:'A3',to:`O${L}`};
+  const buf=await wb.xlsx.writeBuffer();download(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),`Claims summary ${todayISO()}.xlsx`);toast('Excel summary downloaded');
+}
+
+function exportPDF(c){
+  if(!window.jspdf||!window.jspdf.jsPDF||!window.jspdf.jsPDF.API.autoTable)return toast('PDF export needs an internet connection to load – please reconnect and retry','err');
+  const S=state.settings,t=totals(c),{jsPDF}=window.jspdf,doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+  const W=doc.internal.pageSize.getWidth(),H=doc.internal.pageSize.getHeight(),M=12,G=[47,158,91],GD=[20,64,42],GL=[227,244,232];
+  const clean=s=>String(s??'').replace(/[–—]/g,'-').replace(/[“”]/g,'"').replace(/[‘’]/g,"'");
+  doc.setFillColor(...GL);doc.rect(0,0,W,24,'F');doc.setFillColor(...G);doc.rect(0,24,W,1.2,'F');
+  doc.setFillColor(...G);doc.roundedRect(M,5,14,14,3,3,'F');doc.setFillColor(255,255,255);doc.triangle(M+3.5,16,M+11,7.5,M+10.5,15,'F');
+  doc.setTextColor(...GD);doc.setFont('helvetica','bold');doc.setFontSize(14);doc.text(clean(S.company),M+18,11);
+  doc.setFontSize(10.5);doc.setTextColor(...G);doc.text('MILEAGE AND EXPENSES CLAIM FORM',M+18,17.5);
+  doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(90,105,96);doc.text(`Ref: ${c.ref}`,W-M,10,{align:'right'});
+  const sc={approved:G,rejected:[192,57,43],pending:[183,121,31],draft:[110,120,114]}[c.status];
+  doc.setDrawColor(...sc);doc.setTextColor(...sc);doc.setLineWidth(.6);doc.setFont('helvetica','bold');doc.setFontSize(10);
+  const st=STATUS[c.status].label.toUpperCase(),sw=doc.getTextWidth(st)+8;doc.roundedRect(W-M-sw,13,sw,7,1.5,1.5);doc.text(st,W-M-sw/2,17.8,{align:'center'});
+  doc.autoTable({startY:30,margin:{left:M,right:M},theme:'plain',styles:{fontSize:9,cellPadding:{top:1.3,bottom:1.3,left:1.5,right:1.5},textColor:[30,42,34]},
+    columnStyles:{0:{fontStyle:'bold',textColor:GD,cellWidth:34},1:{cellWidth:100},2:{fontStyle:'bold',textColor:GD,cellWidth:34},3:{}},
+    body:[["Claim Name:",clean(c.claimName),"Claim Ref:",c.ref],["Claimant's Name:",clean(c.claimant),"Department:",clean(c.department)],["Month of Claim:",monthLabel(c.month),"Expenses Period:",`${dmy(c.periodFrom)} - ${dmy(c.periodTo)}`],["Date Claimed:",dmy(c.dateClaimed),"Rate (RM/km):",fmt2(c.rate)],["Email:",c.email||(ownerOf(c)||{}).email||"","",""],[{content:'Purpose of Claim:',styles:{fontStyle:'bold',textColor:GD}},{content:clean(c.purpose),colSpan:3}]]});
+  let prev='';const body=c.items.map(i=>{const showD=i.date&&i.date!==prev;if(i.date)prev=i.date;
+    return[showD?dmy(i.date):'',clean(i.from),clean(i.to),num(i.km)?fmtKm(i.km):'',num(i.km)?fmt2(num(i.km)*num(c.rate)):'',num(i.toll)?fmt2(i.toll):'',num(i.parking)?fmt2(i.parking):'',num(i.other)?fmt2(i.other):'',clean(i.desc)+(i.receipt?`\nRef: ${clean(i.receipt)}`:'')]});
+  doc.autoTable({startY:doc.lastAutoTable.finalY+4,margin:{left:M,right:M,bottom:16},theme:'grid',
+    head:[[{content:'Mileage Claim',colSpan:5,styles:{halign:'center'}},{content:'Receipts Required (RM)',colSpan:3,styles:{halign:'center'}},{content:'Description',styles:{halign:'center'}}],
+          ['Date','From Location','To Location','KM','Mileage RM','Toll','Parking','Other','Description of Cost / Purpose of Journey']],
+    body,foot:[[{content:'Totals',colSpan:3,styles:{halign:'right'}},fmtKm(t.km),fmt2(t.mileage),fmt2(t.toll),fmt2(t.park),fmt2(t.other),{content:`Total Claim: RM ${fmt2(t.total)}`,styles:{halign:'right'}}]],
+    styles:{fontSize:8,cellPadding:1.8,lineColor:[198,232,208],lineWidth:.2,textColor:[30,42,34],valign:'top'},
+    headStyles:{fillColor:G,textColor:255,fontStyle:'bold'},footStyles:{fillColor:GL,textColor:GD,fontStyle:'bold'},alternateRowStyles:{fillColor:[247,252,248]},
+    columnStyles:{0:{cellWidth:20},1:{cellWidth:36},2:{cellWidth:36},3:{cellWidth:14,halign:'right'},4:{cellWidth:20,halign:'right'},5:{cellWidth:17,halign:'right'},6:{cellWidth:17,halign:'right'},7:{cellWidth:19,halign:'right'},8:{}},
+    didParseCell:d=>{if(d.section==='head'&&d.row.index===0){d.cell.styles.fillColor=GL;d.cell.styles.textColor=GD}if(d.section==='head'&&d.row.index===1&&d.column.index>=3&&d.column.index<=7)d.cell.styles.halign='right'}});
+  let y=doc.lastAutoTable.finalY+6;if(y>H-52){doc.addPage();y=18}
+  // summary box
+  const bx=W-M-78;doc.setDrawColor(...[198,232,208]);doc.setLineWidth(.3);doc.setFillColor(247,252,248);doc.roundedRect(bx,y,78,40,2,2,'FD');
+  doc.setFontSize(8.5);doc.setFont('helvetica','normal');doc.setTextColor(90,105,96);
+  [[`Total mileage`,`${fmtKm(t.km)} km`],[`Mileage @ RM ${fmt2(c.rate)}/km`,fmt2(t.mileage)],['Toll',fmt2(t.toll)],['Parking',fmt2(t.park)],['Other expenses',fmt2(t.other)]].forEach((p,i)=>{doc.text(p[0],bx+4,y+6+i*5);doc.setTextColor(30,42,34);doc.text(p[1],bx+74,y+6+i*5,{align:'right'});doc.setTextColor(90,105,96)});
+  doc.setFillColor(...G);doc.roundedRect(bx,y+29,78,11,2,2,'F');doc.setTextColor(255);doc.setFont('helvetica','bold');doc.setFontSize(10);doc.text('Total Claim',bx+4,y+36);doc.setFontSize(12);doc.text(`RM ${fmt2(t.total)}`,bx+74,y+36.3,{align:'right'});
+  // signatures
+  const sig=(x,title,name,date,extra)=>{doc.setTextColor(...GD);doc.setFont('helvetica','bold');doc.setFontSize(9);doc.text(title,x,y+4);doc.setDrawColor(150,160,154);doc.setLineWidth(.3);doc.line(x,y+20,x+62,y+20);
+    doc.setFont('helvetica','normal');doc.setTextColor(30,42,34);doc.setFontSize(8.5);doc.text(`Name : ${clean(name)}`,x,y+26);doc.text(`Date : ${date}`,x,y+31);if(extra)doc.text(doc.splitTextToSize(extra,80),x,y+36)};
+  sig(M,'Prepared by :',c.claimant,dmy(c.dateClaimed));
+  const dec=c.hod&&(c.status==='approved'||c.status==='rejected');
+  sig(M+82,dec&&c.hod.role==='approver'?'Approved by (Approver) :':'Approved by (HOD) :',dec?c.hod.name:'',dec?dmy(c.hod.date):'',dec&&c.hod.remarks?`Remarks: ${clean(c.hod.remarks)}`:'');
+  if(c.status==='approved'&&dec){doc.setTextColor(...G);doc.setDrawColor(...G);doc.setLineWidth(.7);doc.setFont('helvetica','bold');doc.setFontSize(11);doc.roundedRect(M+86,y+8,36,9,1.5,1.5);doc.text('APPROVED',M+104,y+14.2,{align:'center'})}
+  const pc=doc.internal.getNumberOfPages();for(let p=1;p<=pc;p++){doc.setPage(p);doc.setFont('helvetica','normal');doc.setFontSize(7.5);doc.setTextColor(130,140,134);
+    doc.text(`${clean(S.company)} · ${c.ref} · generated ${dmy(todayISO())}`.replace('·','-').replace('·','-'),M,H-7);doc.text(`Page ${p} of ${pc}`,W-M,H-7,{align:'right'})}
+  doc.save(fileBase(c)+'.pdf');toast('PDF downloaded');
+}
+
+/* ---------- boot ---------- */
+window.addEventListener('beforeunload',e=>{if(state.view.name==='edit'&&state.draft&&state.draft._dirty){e.preventDefault();e.returnValue=''}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){const o=$('#ovl');if(o&&!o.dataset.locked)closeModal()}});
+(function boot(){const s=getSession(),u=s&&state.users.find(x=>x.id===s.uid&&x.active!==false);
+  if(u&&Date.now()-s.at<12*3600000)signIn(u);else{setSession(null);showLogin()}})();
+</script>
+</body>
+</html>
