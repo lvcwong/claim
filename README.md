@@ -22,7 +22,7 @@ The page can't talk to an SMTP server directly, and putting a mail password in t
 3. **Start the relay.** Double-click `mail-relay/start-mail-relay.bat` and keep the window open.
 4. **Connect the form.** Sign in as Administrator and open **Admin Configurations → Automatic email (SMTP)**. Enter the relay address (`http://127.0.0.1:8025`) and the `relay_key`, tick when to send, and click **Send test email to me**.
 
-When a claim is approved or returned, the claimant gets an email automatically, with the approver in CC. You can also have approvers emailed when a claim is submitted. If the relay can't be reached, the form falls back to opening an email draft in your mail app.
+When a claim is approved, an email goes automatically to the approver, with the staff member who applied in CC. When a claim is returned, the claimant gets the email, with the approver in CC. You can also have approvers emailed when a claim is submitted. If the relay can't be reached, the form falls back to opening an email draft in your mail app.
 
 **Using it from other PCs:** set `listen_host` to `0.0.0.0` in `config.json` and allow port 8025 in Windows Firewall. On the other PCs, set the relay address to `http://<relay-PC-IP>:8025`. Keep it inside the office network. The relay only sends to `allowed_domains`, needs the relay key, and limits how many emails it sends per minute.
 

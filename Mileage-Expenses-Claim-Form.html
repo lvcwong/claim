@@ -730,7 +730,7 @@ function renderView(c){
       ${ownsClaim(c)&&approversFor(c).some(u=>u.email)?` <button class="btn sm" id="vNotify" style="margin-left:6px">✉ Email approver</button>`:''}</div>`:'';
   const decision=c.hod&&(c.status==='approved'||c.status==='rejected')?`<div style="margin-top:14px"><span class="stamp ${c.status}">${c.status==='approved'?ICON.check:ICON.x}${c.status==='approved'?'Approved':'Returned'}</span>
       <div style="margin-top:8px"><b>${esc(c.hod.name)}</b><div class="sub">${dmy(c.hod.date)}</div>${c.hod.remarks?`<div class="note" style="margin-top:8px">${esc(c.hod.remarks)}</div>`:''}
-      ${coversDept(me(),c.department)&&!ownsClaim(c)&&(c.email||(ownerOf(c)||{}).email)?`<button class="btn sm no-print" id="vNotifyOwner" style="margin-top:10px">✉ Email claimant</button>`:''}</div></div>`:
+      ${coversDept(me(),c.department)&&!ownsClaim(c)&&(c.email||(ownerOf(c)||{}).email)?`<button class="btn sm no-print" id="vNotifyOwner" style="margin-top:10px">✉ Resend ${c.status==='approved'?'approval':'return'} email</button>`:''}</div></div>`:
       c.status==='pending'?`<div style="margin-top:14px"><span class="stamp pending">Awaiting HOD</span></div>`:`<div style="margin-top:14px"><span class="stamp draft">Not submitted</span></div>`;
   $('#view').innerHTML=`
   <div class="page-h"><button class="btn no-print" id="vBack">${ICON.back}Back</button><h1>${esc(c.claimName||'(untitled claim)')}</h1>${badge(c.status)}<span class="spacer"></span>
@@ -778,17 +778,28 @@ function renderView(c){
   on('hodApprove',()=>hodDecide(c,'approved'));on('hodReject',()=>hodDecide(c,'rejected'));
 }
 /* ---------- email notifications (opens a pre-filled draft in the user's mail app) ---------- */
+const claimantAddr=c=>{const em=c.email||(ownerOf(c)||{}).email;return em?[{name:c.claimant,email:em}]:[]};
+const approverAddr=c=>{if(!c.hod)return[];const u=state.users.find(x=>x.id===c.hod.userId),em=c.hod.email||(u&&u.email);return em?[{name:c.hod.name,email:em}]:[]};
+/* submitted → approvers; approved → the approver, CC the claimant; returned → the claimant, CC the approver */
 function noticeRecipients(c,kind){
   if(kind==='submitted')return approversFor(c).filter(u=>u.email).map(u=>({name:u.name,email:u.email}));
-  const em=c.email||(ownerOf(c)||{}).email;return em?[{name:c.claimant,email:em}]:[];
+  if(kind==='approved'){const a=approverAddr(c);return a.length?a:claimantAddr(c)}
+  return claimantAddr(c);
+}
+function noticeCc(c,kind){
+  const to=noticeRecipients(c,kind).map(r=>r.email);
+  const cc=kind==='approved'?claimantAddr(c):kind==='rejected'?approverAddr(c):[];
+  return cc.filter(r=>!to.includes(r.email));
 }
 function composeNotice(c,kind){
-  const t=totals(c),S=state.settings,rcpt=noticeRecipients(c,kind),ok=kind==='approved';
+  const t=totals(c),S=state.settings,rcpt=noticeRecipients(c,kind),cc=noticeCc(c,kind),ok=kind==='approved';
   let subject,intro,headline,color;
   if(kind==='submitted'){subject=`[EcoClaim] Approval needed: ${c.claimName} – ${c.claimant} (${rm(t.total)})`;headline='Approval needed';color='#b7791f';
     intro=`Dear ${rcpt.map(r=>r.name).join(' / ')||'Approver'},\n\nA mileage & expenses claim has been submitted for your approval.`}
-  else{subject=`[EcoClaim] Claim ${ok?'APPROVED':'RETURNED'}: ${c.claimName} (${rm(t.total)})`;headline=ok?'Claim approved':'Claim returned for correction';color=ok?'#2f9e5b':'#c0392b';
-    intro=`Dear ${c.claimant},\n\nYour mileage & expenses claim has been ${ok?'APPROVED':'RETURNED for correction'} by ${c.hod.name} on ${dmy(c.hod.date)}.`+(c.hod.remarks?`\n\nRemarks: ${c.hod.remarks}`:'')}
+  else if(ok){subject=`[EcoClaim] Claim APPROVED: ${c.claimName} – ${c.claimant} (${rm(t.total)})`;headline='Claim approved';color='#2f9e5b';
+    intro=`Dear ${c.hod.name}${c.hod.name!==c.claimant?` and ${c.claimant}`:''},\n\nThe mileage & expenses claim by ${c.claimant} has been APPROVED by ${c.hod.name} on ${dmy(c.hod.date)}.`+(c.hod.remarks?`\n\nRemarks: ${c.hod.remarks}`:'')}
+  else{subject=`[EcoClaim] Claim RETURNED: ${c.claimName} (${rm(t.total)})`;headline='Claim returned for correction';color='#c0392b';
+    intro=`Dear ${c.claimant},\n\nYour mileage & expenses claim has been RETURNED for correction by ${c.hod.name} on ${dmy(c.hod.date)}.`+(c.hod.remarks?`\n\nRemarks: ${c.hod.remarks}`:'')}
   const action=kind==='submitted'?'Please sign in to EcoClaim to review and approve.':kind==='rejected'?'Please sign in to EcoClaim, correct the claim and resubmit.':'Sign in to EcoClaim for details.';
   const rows=[['Claim ref',c.ref],['Claim name',c.claimName],['Claimant',`${c.claimant} (${c.department})`],['Month of claim',monthLabel(c.month)],['Purpose',c.purpose],['Total mileage',`${fmtKm(t.km)} km`],['Total claim',rm(t.total)]];
   const body=`${intro}\n\n${rows.map(r=>`${r[0]}: ${r[1]}`).join('\n')}\n\n${action}\n\nRegards,\n${me().name}\n${S.company}`;
@@ -801,14 +812,14 @@ function composeNotice(c,kind){
 <p style="line-height:1.5">${esc(action)}</p>
 <p style="color:#6b7a71;font-size:13px">Regards,<br>${esc(me().name)}<br>${esc(S.company)}</p>
 <p style="color:#9aa7a0;font-size:11px;border-top:1px solid #e3ece6;padding-top:8px">Sent automatically by EcoClaim.</p></div></div>`;
-  return{rcpt,subject,body,html};
+  return{rcpt,cc,subject,body,html};
 }
 /* opens a pre-filled draft in the user's mail app */
 function emailNotice(c,kind){
   const n=composeNotice(c,kind);
   if(!n.rcpt.length)return toast('No email address on file for the recipient – ask your Administrator to add one','err');
-  addHistory(c,'emailed',me().name,'Draft opened to: '+n.rcpt.map(r=>r.email).join(', '));persist();
-  window.location.href=`mailto:${n.rcpt.map(r=>r.email).join(',')}?subject=${encodeURIComponent(n.subject)}&body=${encodeURIComponent(n.body)}`;
+  addHistory(c,'emailed',me().name,'Draft opened to: '+n.rcpt.map(r=>r.email).join(', ')+(n.cc.length?' (cc '+n.cc.map(r=>r.email).join(', ')+')':''));persist();
+  window.location.href=`mailto:${n.rcpt.map(r=>r.email).join(',')}?${n.cc.length?`cc=${n.cc.map(r=>r.email).join(',')}&`:''}subject=${encodeURIComponent(n.subject)}&body=${encodeURIComponent(n.body)}`;
   setTimeout(()=>{if(state.view.name==='view'&&state.view.id===c.id)render()},300);
 }
 /* ---------- SMTP relay (mail-relay/mail_relay.py) ---------- */
@@ -829,11 +840,11 @@ async function notify(c,kind,manual){
   if(!useRelay){if(manual)emailNotice(c,kind);else offerEmail(c,kind);return}
   const n=composeNotice(c,kind);
   if(!n.rcpt.length){toast('No email address on file for the recipient – email not sent','err');return}
-  const to=n.rcpt.map(r=>r.email),cc=kind!=='submitted'&&me().email&&!to.includes(me().email)?[me().email]:[];
+  const to=n.rcpt.map(r=>r.email),cc=n.cc.map(r=>r.email);
   toast('Sending email…');
   try{await relayCall('/send',R,{to,cc,subject:n.subject,text:n.body,html:n.html,reply_to:me().email||''});
     addHistory(c,'emailed',me().name,'Sent automatically to '+to.join(', ')+(cc.length?' (cc '+cc.join(', ')+')':''));persist();
-    toast('✓ Email sent to '+n.rcpt.map(r=>r.name).join(', '));
+    toast('✓ Email sent to '+n.rcpt.map(r=>r.name).join(', ')+(n.cc.length?' (cc '+n.cc.map(r=>r.name).join(', ')+')':''));
     if(state.view.name==='view'&&state.view.id===c.id&&!$('#ovl'))render()}
   catch(e){toast('Automatic email failed: '+e.message,'err');offerEmail(c,kind,true)}
 }
@@ -841,8 +852,9 @@ function offerEmail(c,kind,force){
   if(state.settings.notify===false&&!force)return;
   const rcpt=noticeRecipients(c,kind);if(!rcpt.length)return;
   const what=kind==='submitted'?'Let the approver know this claim is waiting for them.':`Let ${esc(c.claimant)} know the claim was ${kind==='approved'?'approved':'returned'}.`;
+  const fmtR=list=>list.map(r=>`<b>${esc(r.name)}</b> &lt;${esc(r.email)}&gt;`).join(', '),cc=noticeCc(c,kind);
   modal(`<div class="card-h"><h3>✉ Send email notification?</h3></div><div class="card-b stack"><p style="margin:0">${what}</p>
-    <div class="note">To: ${rcpt.map(r=>`<b>${esc(r.name)}</b> &lt;${esc(r.email)}&gt;`).join(', ')}</div>
+    <div class="note">To: ${fmtR(rcpt)}${cc.length?`<br>CC: ${fmtR(cc)}`:''}</div>
     <p class="sub" style="margin:0">Opens a pre-filled email in Outlook / your mail app. Check it, then click Send.</p></div>
     <div class="foot"><button class="btn" data-close>Skip</button><button class="btn primary" id="emGo">Open email draft</button></div>`);
   $('#emGo').onclick=()=>{closeModal();emailNotice(c,kind)};
@@ -871,8 +883,8 @@ function openSettings(){if(!isAdmin())return;const S=state.settings,R=S.relay||{
     <div class="f"><label>Mail relay address</label><input class="input" id="sRelayUrl" value="${esc(R.url||'')}" placeholder="http://127.0.0.1:8025"></div>
     <div class="f"><label>Relay key</label><input class="input" type="password" id="sRelayKey" value="${esc(R.key||'')}" autocomplete="off"></div>
     <div class="f c4"><label>Send automatically when a claim is…</label><div class="checks">
-      <label><input type="checkbox" id="sAutoApproved" ${A.approved!==false?'checked':''}>Approved → claimant</label>
-      <label><input type="checkbox" id="sAutoRejected" ${A.rejected!==false?'checked':''}>Returned → claimant</label>
+      <label><input type="checkbox" id="sAutoApproved" ${A.approved!==false?'checked':''}>Approved → approver, CC claimant</label>
+      <label><input type="checkbox" id="sAutoRejected" ${A.rejected!==false?'checked':''}>Returned → claimant, CC approver</label>
       <label><input type="checkbox" id="sAutoSubmitted" ${A.submitted?'checked':''}>Submitted → approver</label></div></div>
     <div class="f c4" style="flex-direction:row;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn sm" id="sRelayTest">Send test email to me</button><span class="sub" id="sRelayMsg"></span></div>
     <div class="f c4"><div class="note">Claims and user accounts are saved in this browser on this computer. Use Backup to move them to another PC or keep a copy.</div></div>
